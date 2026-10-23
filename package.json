@@ -3,24 +3,45 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -n web,api -c blue,green \"next dev\" \"tsx watch server/index.ts\"",
+    "dev:web": "next dev",
+    "dev:api": "tsx watch server/index.ts",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "concurrently -n web,api \"next start\" \"tsx server/index.ts\"",
+    "lint": "eslint",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false && tsc -p server/tsconfig.json --noEmit --pretty false"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^4.22.3",
+    "firebase": "^13.1.0",
+    "firebase-admin": "^14.5.0",
+    "imagekit": "^6.0.0",
+    "imagekit-javascript": "^4.0.1",
+    "mongoose": "^9.11.3",
     "next": "16.4.2",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "resend": "^6.34.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.6",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
