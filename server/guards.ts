@@ -17,9 +17,22 @@ export function isAssigned(assigneeIds: Iterable<unknown>, userId: string): bool
   return false;
 }
 
-export function assertCanViewCard(user: UserDoc, assigneeIds: Iterable<unknown>): void {
-  if (canSeeEveryCard(user)) return;
-  if (!isAssigned(assigneeIds, String(user._id))) throw new HttpError(404, "Card not found.");
+export function canViewCard(
+  user: { _id: unknown; email: string },
+  card: { assigneeIds?: Iterable<unknown> | null; createdBy?: unknown; approval?: string | null },
+): boolean {
+  if (canSeeEveryCard(user)) return true;
+  const approval = card.approval || null;
+  if (approval === "pending" || approval === "rejected") return String(card.createdBy || "") === String(user._id);
+  if (approval === "approved") return true;
+  return isAssigned(card.assigneeIds || [], String(user._id));
+}
+
+export function assertCanViewCard(
+  user: UserDoc,
+  card: { assigneeIds?: Iterable<unknown> | null; createdBy?: unknown; approval?: string | null },
+): void {
+  if (!canViewCard(user, card)) throw new HttpError(404, "Card not found.");
 }
 
 export async function assertBoardOpen(boardId: string): Promise<BoardDoc> {

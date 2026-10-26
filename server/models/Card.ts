@@ -43,6 +43,7 @@ const cardSchema = new Schema(
     checklist: { type: [checklistSchema], default: [] },
     attachments: { type: [attachmentSchema], default: [] },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    approval: { type: String, enum: ["pending", "approved", "rejected", null], default: null },
     deletedAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false },

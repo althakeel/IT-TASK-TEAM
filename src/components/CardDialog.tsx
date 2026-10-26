@@ -25,6 +25,7 @@ type CardDialogProps = {
   onCopied: (card: Card) => void;
   onDelete: (cardId: string) => void;
   canDelete: boolean;
+  canReview: boolean;
   locked: boolean;
 };
 
@@ -42,6 +43,7 @@ export function CardDialog({
   onCopied,
   onDelete,
   canDelete,
+  canReview,
   locked,
 }: CardDialogProps) {
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
@@ -55,6 +57,7 @@ export function CardDialog({
   const [chatText, setChatText] = useState("");
   const [chatImage, setChatImage] = useState<{ url: string; fileId: string; name: string } | null>(null);
   const [pane, setPane] = useState<"comments" | "chat">("chat");
+  const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -249,6 +252,43 @@ export function CardDialog({
               </form>
             </section>
 
+            {card.approval ? (
+              <section className="mt-5 rounded-lg border border-[#dfe1e6] bg-white p-3">
+                <p className="text-sm font-semibold">
+                  {card.approval === "pending" ? "Waiting for approval" : card.approval === "approved" ? "Approved" : "Rejected"}
+                </p>
+                <p className="mt-1 text-sm text-[#5e6c84]">
+                  {card.approval === "approved"
+                    ? "Other members can see this task."
+                    : "Only the member who added it and the admin can see it until it is approved."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {canReview && !locked ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={reviewing || card.approval === "approved"}
+                        onClick={() => void review("approved")}
+                        className="rounded-md bg-[#1f845a] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={reviewing || card.approval === "rejected"}
+                        onClick={() => void review("rejected")}
+                        className="rounded-md bg-[#c9372c] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  ) : null}
+                  <button type="button" onClick={() => setPane("chat")} className="rounded-md bg-[#091e420f] px-3 py-2 text-sm font-medium">
+                    Chat
+                  </button>
+                </div>
+              </section>
+            ) : null}
             <section className="mt-5">
               <div className="mb-3 flex gap-1 rounded-lg bg-[#091e420f] p-1">
                 <button
@@ -563,6 +603,18 @@ export function CardDialog({
       </div>
     </div>
   );
+
+  async function review(decision: "approved" | "rejected") {
+    setReviewing(true);
+    setError(null);
+    try {
+      onCard(await api.reviewCard(card.id, decision));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setReviewing(false);
+    }
+  }
 
   async function copyCard() {
     if (locked || copying) return;

@@ -75,7 +75,9 @@ export function BoardScorecard({
   onClose: () => void;
 }) {
   const people = members.filter((member) => member.status === "active" && member.userId);
-  const rows = lists.flatMap((list) => list.cards.map((card) => ({ card, list })));
+  const rows = lists.flatMap((list) =>
+    list.cards.filter((card) => card.approval !== "pending" && card.approval !== "rejected").map((card) => ({ card, list })),
+  );
   const scoped = selectedId === "all" ? rows : rows.filter((row) => row.card.assigneeIds.includes(selectedId));
   const counts = tally(scoped);
   const personBars = people

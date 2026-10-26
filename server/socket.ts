@@ -3,7 +3,7 @@ import { isAdminEmail } from "./admin";
 import { requireBoard } from "./access";
 import { mongoReady } from "./db";
 import { verifyFirebaseToken } from "./firebase";
-import { canSeeEveryCard, isAssigned } from "./guards";
+import { canViewCard } from "./guards";
 import { HttpError } from "./http";
 import { CardModel, ListModel, UserModel } from "./models";
 import { cardJson, listJson } from "./serialize";
@@ -59,7 +59,7 @@ async function sendBoard(socket: Socket, boardId: string): Promise<void> {
     ListModel.find({ boardId, deletedAt: { $ne: null } }).select("_id"),
     CardModel.find({ boardId, deletedAt: null }).sort({ position: 1 }),
   ]);
-  const cards = canSeeEveryCard(user) ? allCards : allCards.filter((card) => isAssigned(card.assigneeIds, String(user._id)));
+  const cards = allCards.filter((card) => canViewCard(user, card));
   for (const list of retired) socket.emit("list:deleted", { listId: String(list._id) });
   for (const list of lists) {
     const id = String(list._id);

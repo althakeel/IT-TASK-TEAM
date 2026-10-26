@@ -72,6 +72,7 @@ export function cardJson(card: CardDoc): Card {
     })),
     createdBy: String(card.createdBy),
     createdAt: iso(card.get("createdAt")),
+    approval: card.approval === "pending" || card.approval === "approved" || card.approval === "rejected" ? card.approval : null,
   };
 }
 

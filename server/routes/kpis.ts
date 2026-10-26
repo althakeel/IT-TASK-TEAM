@@ -45,7 +45,7 @@ async function reportFor(userId: string): Promise<KpiReport> {
   const boardIds = boards.map((board) => board._id);
   const [lists, cards, users] = await Promise.all([
     ListModel.find({ boardId: { $in: boardIds }, deletedAt: null }).select("title"),
-    CardModel.find({ boardId: { $in: boardIds }, deletedAt: null }).select("title listId boardId assigneeIds dueDate checklist"),
+    CardModel.find({ boardId: { $in: boardIds }, deletedAt: null }).select("title listId boardId assigneeIds dueDate checklist approval"),
     UserModel.find({ _id: { $in: memberships.map((row) => row.userId) } }).select("name email photo"),
   ]);
   const listTitle = new Map(lists.filter((list) => !deletedDate(list)).map((list) => [String(list._id), list.title]));
@@ -71,6 +71,7 @@ async function reportFor(userId: string): Promise<KpiReport> {
   }
   for (const card of cards) {
     if (deletedDate(card) || !listTitle.has(String(card.listId))) continue;
+    if (card.get("approval") === "pending" || card.get("approval") === "rejected") continue;
     const listName = listTitle.get(String(card.listId)) || "";
     const status = statusOf(card, listName);
     const task: MemberKpiTask = {

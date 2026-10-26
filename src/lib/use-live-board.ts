@@ -43,7 +43,11 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
       }
       const viewer = viewerRef.current;
       if (!viewer.admin && (event.type === "card:created" || event.type === "card:updated" || event.type === "card:moved")) {
-        if (!event.card.assigneeIds.includes(viewer.id)) {
+        const visible =
+          event.card.approval === "approved" ||
+          event.card.createdBy === viewer.id ||
+          (event.card.approval !== "pending" && event.card.approval !== "rejected" && event.card.assigneeIds.includes(viewer.id));
+        if (!visible) {
           setLists((current) => current.map((list) => ({ ...list, cards: list.cards.filter((card) => card.id !== event.card.id) })));
           return;
         }

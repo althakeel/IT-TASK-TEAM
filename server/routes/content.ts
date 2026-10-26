@@ -1,11 +1,11 @@
 import { Router } from "express";
 import mongoose from "mongoose";
-import { isAdminEmail } from "../admin";
+import { adminEmail, isAdminEmail } from "../admin";
 import { requireBoard, requireUser } from "../access";
 import { assertAdmin, assertCanViewCard } from "../guards";
 import { asyncHandler, bodyOf, clientMutationId, HttpError, param } from "../http";
 import { assertImageKitUrl, imageKitClient } from "../imagekit";
-import { CardModel, CommentModel, ListModel, UserModel } from "../models";
+import { CardModel, CommentModel, ListModel, MembershipModel, UserModel } from "../models";
 import { notifyUsers } from "../notify";
 import { deletedDate } from "../trash";
 import { cardJson, commentJson, listJson } from "../serialize";
@@ -121,9 +121,23 @@ contentRouter.post(
       checklist: [],
       attachments: [],
       createdBy: user._id,
+      approval: isAdminEmail(user.email) ? null : "pending",
     });
     const dto = cardJson(card);
     emitToUsers(assigneeIds.map(String), "card:created", { clientMutationId: clientMutationId(body), card: dto }, true);
+    if (dto.approval === "pending") {
+      const admin = await UserModel.findOne({ email: adminEmail() }).select("_id");
+      if (admin) {
+        await notifyUsers({
+          recipientIds: [String(admin._id)],
+          actorId: String(user._id),
+          title: "Task needs approval",
+          body: `${user.name} added “${dto.title}”. Approve it before other members can see it.`,
+          boardId: dto.boardId,
+          cardId: dto.id,
+        });
+      }
+    }
     res.status(201).json(dto);
   }),
 );
@@ -135,7 +149,7 @@ contentRouter.patch(
     const card = await CardModel.findById(param(req.params.cardId));
     if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
-    assertCanViewCard(user, card.assigneeIds);
+    assertCanViewCard(user, card);
     if (board.closed) throw new HttpError(403, "This board is closed.");
     const body = bodyOf(req);
     const beforeAssignees = card.assigneeIds.map((id) => String(id));
@@ -258,6 +272,51 @@ contentRouter.patch(
   }),
 );
 
+contentRouter.post(
+  "/cards/:cardId/approval",
+  asyncHandler(async (req, res) => {
+    const user = await requireUser(req);
+    assertAdmin(user);
+    const card = await CardModel.findById(param(req.params.cardId));
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
+    const { board } = await requireBoard(String(user._id), String(card.boardId));
+    if (board.closed) throw new HttpError(403, "This board is closed.");
+    if (card.approval !== "pending" && card.approval !== "approved" && card.approval !== "rejected") {
+      throw new HttpError(400, "This task does not need approval.");
+    }
+    const decision = bodyOf(req).decision;
+    if (decision !== "approved" && decision !== "rejected") throw new HttpError(400, "Choose approve or reject.");
+    card.approval = decision;
+    await card.save();
+    const dto = cardJson(card);
+    const members = await MembershipModel.find({ workspaceId: board.workspaceId, status: "active", userId: { $ne: null } }).select("userId");
+    const memberIds = members.map((row) => String(row.userId));
+    const creatorId = String(card.createdBy);
+    if (decision === "approved") {
+      emitToUsers(memberIds, "card:updated", { card: dto }, true);
+    } else {
+      const admin = await UserModel.findOne({ email: adminEmail() }).select("_id");
+      const keep = new Set([creatorId, admin ? String(admin._id) : ""]);
+      emitToUsers(
+        memberIds.filter((id) => !keep.has(id)),
+        "card:deleted",
+        { cardId: dto.id, listId: dto.listId },
+        false,
+      );
+      emitToUsers([creatorId], "card:updated", { card: dto }, true);
+    }
+    await notifyUsers({
+      recipientIds: [creatorId],
+      actorId: String(user._id),
+      title: decision === "approved" ? "Task approved" : "Task rejected",
+      body: decision === "approved" ? `“${dto.title}” is approved. Other members can see it.` : `“${dto.title}” was rejected. Other members cannot see it.`,
+      boardId: dto.boardId,
+      cardId: dto.id,
+    });
+    res.json(dto);
+  }),
+);
+
 contentRouter.delete(
   "/cards/:cardId",
   asyncHandler(async (req, res) => {
@@ -287,7 +346,7 @@ contentRouter.post(
     const card = await CardModel.findById(param(req.params.cardId));
     if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
-    assertCanViewCard(user, card.assigneeIds);
+    assertCanViewCard(user, card);
     if (board.closed) throw new HttpError(403, "This board is closed.");
     if (card.attachments.length >= 20) throw new HttpError(400, "A card can have up to 20 attachments.");
     const body = bodyOf(req);
@@ -351,7 +410,7 @@ contentRouter.get(
     const card = await CardModel.findById(param(req.params.cardId));
     if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     await requireBoard(String(user._id), String(card.boardId));
-    assertCanViewCard(user, card.assigneeIds);
+    assertCanViewCard(user, card);
     const comments = await CommentModel.find({ cardId: card._id }).sort({ createdAt: 1 });
     const authors = await UserModel.find({ _id: { $in: comments.map((comment) => comment.authorId) } });
     const byId = new Map(authors.map((author) => [String(author._id), author]));
@@ -366,7 +425,7 @@ contentRouter.post(
     const card = await CardModel.findById(param(req.params.cardId));
     if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
-    assertCanViewCard(user, card.assigneeIds);
+    assertCanViewCard(user, card);
     if (board.closed) throw new HttpError(403, "This board is closed.");
     const body = bodyOf(req);
     const channel = body.channel === "chat" ? "chat" : "comment";

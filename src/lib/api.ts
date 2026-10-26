@@ -103,6 +103,8 @@ export const api = {
     request<{ ok: true }>(`/api/lists/${listId}`, "DELETE", { clientMutationId }),
   createCard: (listId: string, title: string, clientMutationId: string) =>
     request<Card>(`/api/lists/${listId}/cards`, "POST", { title, clientMutationId }),
+  reviewCard: (cardId: string, decision: "approved" | "rejected") =>
+    request<Card>(`/api/cards/${cardId}/approval`, "POST", { decision }),
   updateCard: (cardId: string, patch: Record<string, unknown>) => request<Card>(`/api/cards/${cardId}`, "PATCH", patch),
   deleteCard: (cardId: string, clientMutationId: string) =>
     request<{ ok: true }>(`/api/cards/${cardId}`, "DELETE", { clientMutationId }),

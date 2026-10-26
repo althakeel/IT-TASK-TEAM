@@ -269,6 +269,7 @@ export function Board({
       attachments: [],
       createdBy: "",
       createdAt: new Date().toISOString(),
+      approval: null,
     };
     setLists((prev) => prev.map((item) => (item.id === listId ? { ...item, cards: [...item.cards, optimistic] } : item)));
     try {
@@ -575,6 +576,8 @@ function CardFace({ card, people, overlay = false }: { card: Card; people: Map<s
           </div>
         ) : null}
         <h3 className="text-sm leading-5 text-[#172b4d]">{card.title}</h3>
+        {card.approval === "pending" ? <p className="mt-1 text-xs font-medium text-[#7f5f01]">Waiting for approval</p> : null}
+        {card.approval === "rejected" ? <p className="mt-1 text-xs font-medium text-[#ae2e24]">Rejected</p> : null}
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-[#5e6c84]">
           {card.createdAt ? <time dateTime={card.createdAt}>{formatWhen(card.createdAt)}</time> : null}
           {card.dueDate ? (

@@ -555,6 +555,7 @@ export function BoardScreen() {
           onCard={(card: Card) => live.setLists((current) => upsertCard(current, card))}
           onComments={live.setComments}
           canDelete={isAdmin}
+          canReview={isAdmin}
           locked={locked}
           onClose={() => live.setOpenCardId(null)}
           onCopied={(card) => {

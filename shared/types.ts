@@ -137,6 +137,7 @@ export type Card = {
   attachments: Attachment[];
   createdBy: string;
   createdAt: string;
+  approval: "pending" | "approved" | "rejected" | null;
 };
 
 export type List = {

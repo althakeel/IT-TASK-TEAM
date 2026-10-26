@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { BOARD_BACKGROUNDS } from "../../shared/types";
 import { requireBoard, requireUser, requireWorkspace } from "../access";
-import { assertAdmin, canSeeEveryCard, isAssigned } from "../guards";
+import { assertAdmin, canViewCard } from "../guards";
 import { asyncHandler, bodyOf, HttpError, param } from "../http";
 import { BoardModel, CardModel, ListModel } from "../models";
 import { emitBoard } from "../realtime";
@@ -42,7 +42,7 @@ boardRouter.get(
       CardModel.find({ boardId: board._id, deletedAt: null }).sort({ position: 1 }),
       membershipsForWorkspace(String(board.workspaceId), false),
     ]);
-    const cards = canSeeEveryCard(user) ? allCards : allCards.filter((card) => isAssigned(card.assigneeIds, String(user._id)));
+    const cards = allCards.filter((card) => canViewCard(user, card));
     res.json({
       board: boardJson(board),
       role: membership.role,
