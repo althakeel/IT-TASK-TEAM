@@ -41,6 +41,7 @@ type BoardProps = {
   setDragging: (value: boolean) => void;
   onOpenCard: (cardId: string) => void;
   onError: (message: string) => void;
+  onAdded?: (card: Card) => void;
   canDelete: boolean;
   locked: boolean;
   arrangeLocked?: boolean;
@@ -57,6 +58,7 @@ export function Board({
   setDragging,
   onOpenCard,
   onError,
+  onAdded,
   canDelete,
   locked,
   arrangeLocked = false,
@@ -275,6 +277,7 @@ export function Board({
     try {
       const saved = await api.createCard(listId, title, mutationId);
       setLists((prev) => prev.map((item) => (item.id === listId ? { ...item, cards: item.cards.map((card) => (card.id === tempId ? saved : card)) } : item)));
+      onAdded?.(saved);
     } catch (error) {
       forgetMutation(mutationId);
       setLists((prev) => prev.map((item) => ({ ...item, cards: item.cards.filter((card) => card.id !== tempId) })));

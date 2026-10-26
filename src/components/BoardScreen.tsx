@@ -43,6 +43,7 @@ export function BoardScreen() {
   const [personId, setPersonId] = useState("all");
   const [labelColor, setLabelColor] = useState("all");
   const [dueFilter, setDueFilter] = useState<"all" | "overdue" | "week" | "none">("all");
+  const [view, setView] = useState<"approval" | "approved" | "normal">("normal");
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
@@ -87,12 +88,21 @@ export function BoardScreen() {
 
   const title = titleDraft ?? board.title;
   const needle = query.trim().toLowerCase();
-  const filtering = Boolean(needle) || personId !== "all" || labelColor !== "all" || dueFilter !== "all";
-  const totalCards = live.lists.reduce((sum, list) => sum + list.cards.length, 0);
+  const searchFiltering = Boolean(needle) || personId !== "all" || labelColor !== "all" || dueFilter !== "all";
+  const allCards = live.lists.flatMap((list) => list.cards);
+  const approvalCount = allCards.filter((card) => card.approval === "pending").length;
+  const approvedCount = allCards.filter((card) => card.approval === "approved").length;
+  function matchesView(card: Card) {
+    if (view === "approval") return card.approval === "pending" || card.approval === "rejected";
+    if (view === "approved") return card.approval === "approved";
+    return !card.approval;
+  }
+  const totalCards = allCards.filter(matchesView).length;
   const shownLists = live.lists
     .map((list) => ({
       ...list,
       cards: list.cards.filter((card) => {
+        if (!matchesView(card)) return false;
         if (needle && !`${card.title} ${card.description}`.toLowerCase().includes(needle)) return false;
         if (personId !== "all" && !card.assigneeIds.includes(personId)) return false;
         if (labelColor !== "all" && !card.labels.some((label) => label.color === labelColor)) return false;
@@ -102,7 +112,7 @@ export function BoardScreen() {
         return true;
       }),
     }))
-    .filter((list) => !filtering || list.cards.length > 0);
+    .filter((list) => (view === "normal" && !searchFiltering) || list.cards.length > 0);
   const shownCount = shownLists.reduce((sum, list) => sum + list.cards.length, 0);
   const tagPeople = members.filter((member) => member.status === "active" && member.userId);
 
@@ -175,6 +185,25 @@ export function BoardScreen() {
         </div>
       </header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 bg-black/20 px-3 py-2 text-sm text-white">
+        <div className="flex rounded-md bg-black/20 p-0.5">
+          {(
+            [
+              ["approval", "Approval", approvalCount],
+              ["approved", "Approved", approvedCount],
+              ["normal", "Normal process", null],
+            ] as const
+          ).map(([id, label, count]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setView(id)}
+              className={`rounded px-3 py-1 text-sm font-medium ${view === id ? "bg-white text-[#172b4d]" : "text-white hover:bg-white/15"}`}
+            >
+              {label}
+              {count ? <span className="ml-1.5 rounded-full bg-[#e2b203] px-1.5 text-xs font-semibold text-[#172b4d]">{count}</span> : null}
+            </button>
+          ))}
+        </div>
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -219,7 +248,7 @@ export function BoardScreen() {
           <option value="week">Due this week</option>
           <option value="none">No due date</option>
         </select>
-        {filtering ? (
+        {searchFiltering ? (
           <>
             <span className="text-xs text-white/80">
               {shownCount} of {totalCards}
@@ -244,8 +273,16 @@ export function BoardScreen() {
           This board is closed. Tasks stay visible, and changes are paused until it is reopened.
         </p>
       ) : null}
-      {!isAdmin ? (
-        <p className="px-4 pt-3 text-sm text-white/90">You only see tasks you are tagged on.</p>
+      {view === "approval" ? (
+        <p className="px-4 pt-3 text-sm text-white/90">
+          {isAdmin
+            ? "Tasks a member adds stay here until you approve them. Open a task for Approve, Reject, and Chat."
+            : "Tasks you add stay here until the admin approves them. Other members cannot see them yet."}
+        </p>
+      ) : view === "approved" ? (
+        <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved, so other members can see them.</p>
+      ) : !isAdmin ? (
+        <p className="px-4 pt-3 text-sm text-white/90">You only see tasks you are tagged on. A task you add yourself waits in Approval.</p>
       ) : null}
       {!isAdmin && taskCount === 0 ? (
         <div className="mx-3 mt-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
@@ -263,12 +300,18 @@ export function BoardScreen() {
         />
       ) : null}
       <div className="min-h-0 flex-1">
-        {filtering && shownCount === 0 ? (
-          <div className="m-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">No cards match this search.</div>
+        {shownCount === 0 && (searchFiltering || view !== "normal") ? (
+          <div className="m-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
+            {searchFiltering
+              ? "No cards match this search."
+              : view === "approval"
+                ? "Nothing is waiting for approval."
+                : "No tasks have been approved yet."}
+          </div>
         ) : (
           <Board
             boardId={board.id}
-            lists={filtering ? shownLists : live.lists}
+            lists={shownLists}
             members={members}
             setLists={live.setLists}
             getLists={live.getLists}
@@ -277,9 +320,12 @@ export function BoardScreen() {
             setDragging={live.setDragging}
             onOpenCard={live.setOpenCardId}
             onError={setToast}
+            onAdded={(card) => {
+              if (card.approval === "pending") setView("approval");
+            }}
             canDelete={isAdmin}
             locked={locked}
-            arrangeLocked={filtering}
+            arrangeLocked={searchFiltering || view !== "normal"}
           />
         )}
       </div>
