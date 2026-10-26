@@ -18,7 +18,7 @@ export function InviteScreen() {
 
   useEffect(() => {
     if (auth.loading) return;
-    if (!auth.user) {
+    if (!auth.signedIn) {
       router.replace(`/login?next=/invite/${token}`);
       return;
     }
@@ -47,7 +47,7 @@ export function InviteScreen() {
     return () => {
       cancelled = true;
     };
-  }, [auth.loading, auth.user, router, token]);
+  }, [auth.loading, auth.signedIn, router, token]);
 
   if (auth.loading || (auth.user && !message)) return <FullScreenSpinner />;
 

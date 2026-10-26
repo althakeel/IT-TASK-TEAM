@@ -7,7 +7,8 @@ import { BOARD_BACKGROUNDS, type WorkspaceDetail } from "@shared/types";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { errorMessage } from "@/lib/format";
-import { AppHeader, Avatar, Button, ErrorText, FullScreenSpinner, TextInput, Toast } from "@/components/ui";
+import { AppHeader, Avatar, Button, ErrorText, FullScreenSpinner, Modal, TextInput, Toast } from "@/components/ui";
+import { boardSurface } from "@/lib/board-style";
 
 export function WorkspaceScreen() {
   const params = useParams<{ workspaceId: string }>();
@@ -23,11 +24,13 @@ export function WorkspaceScreen() {
   const [background, setBackground] = useState<string>(BOARD_BACKGROUNDS[0].color);
   const isAdmin = Boolean(auth.user?.isAdmin);
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteName, setDeleteName] = useState("");
 
   useEffect(() => {
-    if (!auth.loading && !auth.user) router.replace("/login");
-  }, [auth.loading, auth.user, router]);
+    if (!auth.loading && !auth.signedIn) router.replace("/login");
+  }, [auth.loading, auth.signedIn, router]);
 
   useEffect(() => {
     if (!auth.user) return;
@@ -47,120 +50,113 @@ export function WorkspaceScreen() {
     };
   }, [auth.user, workspaceId]);
 
+  if (!auth.loading && auth.signedIn && !auth.user) {
+    return <div className="flex min-h-screen items-center justify-center p-6 text-center text-sm text-[#ae2e24]">{auth.error || "You are still signed in. Refresh the page."}</div>;
+  }
+
   if (auth.loading || (auth.user && !detail && !error)) return <FullScreenSpinner />;
 
   const canAdmin = detail?.role === "owner" || detail?.role === "admin";
   const isOwner = detail?.role === "owner";
+  const people = detail?.members ?? [];
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-[#f7f8fa] pb-16">
       <AppHeader />
-      <main className="mx-auto grid w-full max-w-6xl flex-1 gap-8 px-4 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section>
-          <Link href="/home" className="text-sm font-medium text-[#0c66e4]">
-            All workspaces
-          </Link>
-          {detail ? (
-            <form
-              className="mt-3 flex flex-wrap items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!canAdmin || name.trim() === detail.name) return;
-                setBusy(true);
-                api
-                  .renameWorkspace(detail.id, name.trim())
-                  .then((updated) => setDetail({ ...detail, name: updated.name }))
-                  .catch((err: unknown) => setToast(errorMessage(err)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                disabled={!canAdmin}
-                className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none disabled:opacity-100"
-              />
-              {canAdmin && name.trim() && name.trim() !== detail.name ? (
-                <Button type="submit" disabled={busy}>
-                  Save
-                </Button>
-              ) : null}
-            </form>
-          ) : null}
-          <ErrorText>{error}</ErrorText>
-          <h2 className="mt-8 mb-3 text-sm font-semibold tracking-wide text-[#5e6c84] uppercase">Boards</h2>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-            {detail?.boards.map((board) => (
-              <div key={board.id} className="group relative">
-                <Link
-                  href={`/b/${board.id}`}
-                  className="flex h-24 items-end rounded-lg p-3 text-sm font-semibold text-white shadow-sm"
-                  style={{ backgroundColor: board.background }}
-                >
-                  {board.title}
-                </Link>
-                {canAdmin ? (
-                  <button
-                    type="button"
-                    className="absolute top-2 right-2 hidden rounded bg-black/30 px-2 py-0.5 text-xs text-white group-hover:block"
-                    onClick={() => {
-                      if (!window.confirm(`Delete the board “${board.title}”?`)) return;
-                      api
-                        .deleteBoard(board.id)
-                        .then(() => setDetail(detail ? { ...detail, boards: detail.boards.filter((item) => item.id !== board.id) } : detail))
-                        .catch((err: unknown) => setToast(errorMessage(err)));
-                    }}
-                  >
-                    Delete
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-          <form
-            className="mt-4 rounded-xl bg-white p-4 shadow-sm"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const title = boardTitle.trim();
-              if (!title || !detail) return;
-              setBusy(true);
-              api
-                .createBoard(detail.id, title, background)
-                .then((board) => {
-                  setDetail({ ...detail, boards: [board, ...detail.boards] });
-                  setBoardTitle("");
-                })
-                .catch((err: unknown) => setToast(errorMessage(err)))
-                .finally(() => setBusy(false));
-            }}
-          >
-            <h3 className="mb-2 text-sm font-semibold">Create a board</h3>
-            <TextInput value={boardTitle} onChange={(event) => setBoardTitle(event.target.value)} placeholder="Board title" required />
-            <div className="mt-3 flex flex-wrap gap-2">
-              {BOARD_BACKGROUNDS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-label={item.name}
-                  onClick={() => setBackground(item.color)}
-                  className="h-8 w-12 rounded-md"
-                  style={{ backgroundColor: item.color, outline: background === item.color ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
+      <div className="bg-[#0b3a66] text-white">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <Link href="/home" className="text-sm text-white/75 hover:text-white">
+              All workspaces
+            </Link>
+            {detail ? (
+              <form
+                className="mt-2 flex flex-wrap items-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!canAdmin || name.trim() === detail.name) return;
+                  setBusy(true);
+                  api
+                    .renameWorkspace(detail.id, name.trim())
+                    .then((updated) => setDetail({ ...detail, name: updated.name }))
+                    .catch((err: unknown) => setToast(errorMessage(err)))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  disabled={!canAdmin}
+                  className="min-w-0 bg-transparent text-3xl font-semibold outline-none"
                 />
+                {canAdmin && name.trim() && name.trim() !== detail.name ? (
+                  <Button type="submit" disabled={busy}>
+                    Save
+                  </Button>
+                ) : null}
+              </form>
+            ) : null}
+            <p className="mt-1 text-sm text-white/75">
+              {detail?.boards.length ?? 0} boards · {people.length} people
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex -space-x-2">
+              {people.slice(0, 5).map((member) => (
+                <Avatar key={member.id} name={member.name || member.email} photo={member.photo} size={36} />
               ))}
             </div>
-            <Button type="submit" className="mt-3" disabled={busy}>
-              Create board
-            </Button>
-          </form>
+            {isAdmin ? (
+              <a href="#people" className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#0b3a66]">
+                Invite
+              </a>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-4 py-8">
+        <ErrorText>{error}</ErrorText>
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Boards</h2>
+            {isAdmin ? (
+              <button type="button" className="text-sm font-medium text-[#0c66e4]" onClick={() => setCreating(true)}>
+                New board
+              </button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+            {detail?.boards.map((board) => (
+              <Link
+                key={board.id}
+                href={`/b/${board.id}`}
+                className="flex h-36 flex-col justify-end rounded-2xl bg-cover bg-center p-4 text-lg font-semibold text-white shadow-md"
+                style={boardSurface(board)}
+              >
+                {board.title}
+                {board.closed ? <span className="mt-1 text-xs font-medium text-white/80">Closed</span> : null}
+              </Link>
+            ))}
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="flex h-36 flex-col items-start justify-between rounded-2xl border border-dashed border-[#c3c9d4] bg-white p-4 text-left text-[#44546f] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              >
+                <span className="grid h-10 w-10 place-items-center rounded-full bg-[#e9f2ff] text-xl text-[#0c66e4]">+</span>
+                <span className="font-semibold">Create a board</span>
+              </button>
+            ) : null}
+          </div>
         </section>
-        <aside className="h-fit rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-semibold tracking-wide text-[#5e6c84] uppercase">Members</h2>
-          <ul className="mt-3 flex flex-col gap-3">
-            {detail?.members.map((member) => (
-              <li key={member.id} className="flex items-start gap-2">
-                <Avatar name={member.name || member.email} photo={member.photo} />
+        <section id="people">
+          <h2 className="mb-4 text-lg font-semibold">People</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {people.map((member) => (
+              <article key={member.id} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
+                <Avatar name={member.name || member.email} photo={member.photo} size={40} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{member.name || member.email}</p>
+                  <p className="truncate font-medium">{member.name || member.email}</p>
                   <p className="truncate text-xs text-[#5e6c84]">{member.email}</p>
                   {member.status === "pending" && member.inviteToken ? (
                     <button
@@ -190,13 +186,15 @@ export function WorkspaceScreen() {
                         )
                         .catch((err: unknown) => setToast(errorMessage(err)));
                     }}
-                    className="rounded-md border border-[#dfe1e6] px-1 py-1 text-xs"
+                    className="rounded-full border border-[#dfe1e6] px-2 py-1 text-xs"
                   >
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                   </select>
                 ) : (
-                  <span className="text-xs text-[#5e6c84] capitalize">{member.status === "pending" ? "Invited" : member.role}</span>
+                  <span className="rounded-full bg-[#f1f2f4] px-2 py-1 text-xs text-[#44546f] capitalize">
+                    {member.status === "pending" ? "Invited" : member.role}
+                  </span>
                 )}
                 {member.role !== "owner" && (canAdmin || member.userId === auth.user?.id) ? (
                   <button
@@ -215,12 +213,12 @@ export function WorkspaceScreen() {
                     {member.userId === auth.user?.id ? "Leave" : "Remove"}
                   </button>
                 ) : null}
-              </li>
+              </article>
             ))}
-          </ul>
+          </div>
           {isAdmin ? (
             <form
-              className="mt-4 flex flex-col gap-2 border-t border-[#dfe1e6] pt-4"
+              className="mt-4 flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm sm:flex-row sm:items-end"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!detail) return;
@@ -244,38 +242,103 @@ export function WorkspaceScreen() {
                   .finally(() => setBusy(false));
               }}
             >
-              <h3 className="text-sm font-semibold">Invite a user</h3>
-              <TextInput type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teammate@company.com" required />
+              <label className="min-w-0 flex-1 text-sm font-medium">
+                Invite by email
+                <TextInput className="mt-1" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@althakeel.com" required />
+              </label>
               <Button type="submit" disabled={busy}>
                 Send invite
               </Button>
-              <p className="text-xs text-[#5e6c84]">An email is sent with the invite link. They join as a user when they sign in with that email.</p>
             </form>
           ) : null}
           {isOwner ? (
-            <div className="mt-4 border-t border-[#dfe1e6] pt-4">
-              {confirmDelete ? (
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={() => {
-                    api
-                      .deleteWorkspace(workspaceId)
-                      .then(() => router.push("/home"))
-                      .catch((err: unknown) => setToast(errorMessage(err)));
-                  }}
-                >
-                  Confirm delete workspace
-                </Button>
-              ) : (
-                <button type="button" className="text-sm text-[#ae2e24]" onClick={() => setConfirmDelete(true)}>
-                  Delete workspace
-                </button>
-              )}
+            <div className="mt-8">
+              <button
+                type="button"
+                className="text-sm text-[#5e6c84] underline"
+                onClick={() => {
+                  setDeleteName("");
+                  setConfirmDelete(true);
+                }}
+              >
+                Delete workspace
+              </button>
             </div>
           ) : null}
-        </aside>
+        </section>
       </main>
+      {creating ? (
+        <Modal title="New board" onClose={() => setCreating(false)}>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const title = boardTitle.trim();
+              if (!title || !detail) return;
+              setBusy(true);
+              api
+                .createBoard(detail.id, title, background)
+                .then((board) => {
+                  setDetail({ ...detail, boards: [board, ...detail.boards] });
+                  setBoardTitle("");
+                  setCreating(false);
+                })
+                .catch((err: unknown) => setToast(errorMessage(err)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            <TextInput value={boardTitle} onChange={(event) => setBoardTitle(event.target.value)} placeholder="Board title" autoFocus required />
+            <div className="flex flex-wrap gap-2">
+              {BOARD_BACKGROUNDS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-label={item.name}
+                  onClick={() => setBackground(item.color)}
+                  className="h-8 w-12 rounded-md"
+                  style={{ backgroundColor: item.color, outline: background === item.color ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
+                />
+              ))}
+            </div>
+            <Button type="submit" disabled={busy}>
+              Create board
+            </Button>
+          </form>
+        </Modal>
+      ) : null}
+      {confirmDelete && detail ? (
+        <Modal
+          title="Delete workspace"
+          onClose={() => {
+            setConfirmDelete(false);
+            setDeleteName("");
+          }}
+        >
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (deleteName.trim() !== detail.name) return;
+              setBusy(true);
+              api
+                .deleteWorkspace(workspaceId)
+                .then(() => router.push("/home"))
+                .catch((err: unknown) => {
+                  setToast(errorMessage(err));
+                  setBusy(false);
+                });
+            }}
+          >
+            <p className="text-sm text-[#5e6c84]">
+              Type “{detail.name}” to delete this workspace. Close every board first. The admin can restore it for 7 days from Recently deleted.
+            </p>
+            <TextInput value={deleteName} onChange={(event) => setDeleteName(event.target.value)} placeholder={detail.name} autoFocus />
+            <Button type="submit" variant="danger" disabled={busy || deleteName.trim() !== detail.name}>
+              Delete workspace
+            </Button>
+          </form>
+        </Modal>
+      ) : null}
       {toast ? <Toast message={toast} onClose={() => setToast(null)} /> : null}
     </div>
   );

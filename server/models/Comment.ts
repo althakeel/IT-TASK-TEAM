@@ -5,7 +5,11 @@ const commentSchema = new Schema(
     cardId: { type: Schema.Types.ObjectId, ref: "Card", required: true, index: true },
     boardId: { type: Schema.Types.ObjectId, ref: "Board", required: true },
     authorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    text: { type: String, required: true },
+    text: { type: String, default: "" },
+    channel: { type: String, enum: ["comment", "chat"], default: "comment" },
+    imageUrl: { type: String, default: "" },
+    imageFileId: { type: String, default: "" },
+    imageName: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false },
 );

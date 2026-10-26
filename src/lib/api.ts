@@ -6,10 +6,15 @@ import type {
   Comment,
   HealthResponse,
   ImageKitAuth,
+  KpiReport,
   InvitePreview,
   List,
+  MentionedTask,
+  TrashItem,
+  TrashKind,
   Membership,
   SessionResponse,
+  User,
   WorkspaceDetail,
   WorkspaceSummary,
 } from "@shared/types";
@@ -60,12 +65,17 @@ export async function fetchHealth(): Promise<HealthResponse | null> {
 export const api = {
   session: (body: { name?: string | null; photo?: string | null }) =>
     request<SessionResponse>("/api/auth/session", "POST", body),
+  updatePhoto: (photo: string) => request<User>("/api/me/photo", "POST", { photo }),
+  updateProfile: (name: string) => request<User>("/api/me", "PATCH", { name }),
   workspaces: () => request<WorkspaceSummary[]>("/api/workspaces"),
+  kpis: () => request<KpiReport>("/api/kpis"),
   workspace: (id: string) => request<WorkspaceDetail>(`/api/workspaces/${id}`),
   createWorkspace: (name: string) => request<WorkspaceSummary>("/api/workspaces", "POST", { name }),
   renameWorkspace: (id: string, name: string) =>
     request<{ id: string; name: string }>(`/api/workspaces/${id}`, "PATCH", { name }),
   deleteWorkspace: (id: string) => request<{ ok: true }>(`/api/workspaces/${id}`, "DELETE"),
+  trash: () => request<TrashItem[]>("/api/trash"),
+  restoreTrash: (kind: TrashKind, id: string) => request<{ ok: true }>(`/api/trash/${kind}/${id}/restore`, "POST", {}),
   invite: (workspaceId: string, email: string, role: "admin" | "member") =>
     request<Membership & { emailSent?: boolean }>(`/api/workspaces/${workspaceId}/invites`, "POST", { email, role }),
   setRole: (workspaceId: string, membershipId: string, role: "admin" | "member") =>
@@ -78,8 +88,9 @@ export const api = {
   createBoard: (workspaceId: string, title: string, background: string) =>
     request<BoardSummary>(`/api/workspaces/${workspaceId}/boards`, "POST", { title, background }),
   board: (id: string) => request<BoardDetail>(`/api/boards/${id}`),
-  updateBoard: (id: string, patch: { title?: string; background?: string; closed?: boolean }) =>
+  updateBoard: (id: string, patch: { title?: string; background?: string; backgroundImage?: string; description?: string; closed?: boolean }) =>
     request<BoardSummary>(`/api/boards/${id}`, "PATCH", patch),
+  myTasks: () => request<MentionedTask[]>("/api/me/tasks"),
   notifications: () => request<AppNotification[]>("/api/notifications"),
   readNotification: (id: string) => request<AppNotification>(`/api/notifications/${id}/read`, "POST", {}),
   readAllNotifications: () => request<{ ok: true }>("/api/notifications/read-all", "POST", {}),
@@ -100,8 +111,18 @@ export const api = {
   deleteAttachment: (cardId: string, attachmentId: string, clientMutationId: string) =>
     request<Card>(`/api/cards/${cardId}/attachments/${attachmentId}`, "DELETE", { clientMutationId }),
   comments: (cardId: string) => request<Comment[]>(`/api/cards/${cardId}/comments`),
-  addComment: (cardId: string, text: string, clientMutationId: string) =>
-    request<Comment>(`/api/cards/${cardId}/comments`, "POST", { text, clientMutationId }),
+  addComment: (
+    cardId: string,
+    body: {
+      text: string;
+      clientMutationId: string;
+      channel?: "comment" | "chat";
+      imageUrl?: string;
+      imageFileId?: string;
+      imageName?: string;
+      mentionIds?: string[];
+    },
+  ) => request<Comment>(`/api/cards/${cardId}/comments`, "POST", body),
   deleteComment: (commentId: string, clientMutationId: string) =>
     request<{ ok: true }>(`/api/comments/${commentId}`, "DELETE", { clientMutationId }),
   imageKitAuth: () => request<ImageKitAuth>("/api/imagekit/auth"),

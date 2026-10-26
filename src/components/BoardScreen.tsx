@@ -3,14 +3,17 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { BOARD_BACKGROUNDS, type Card } from "@shared/types";
+import ImageKit from "imagekit-javascript";
+import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, type Card, type Membership } from "@shared/types";
 import { Board } from "@/components/Board";
+import { BoardScorecard } from "@/components/BoardScorecard";
 import { CardDialog } from "@/components/CardDialog";
 import { NotificationBell } from "@/components/Notifications";
-import { Avatar, Button, FullScreenSpinner, Logo, Modal, TextInput, Toast } from "@/components/ui";
+import { Avatar, Button, FullScreenSpinner, Logo, Modal, TextArea, TextInput, Toast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { upsertCard } from "@/lib/board-state";
+import { fileKind, upsertCard } from "@/lib/board-state";
+import { boardSurface } from "@/lib/board-style";
 import { errorMessage } from "@/lib/format";
 import { useLiveBoard } from "@/lib/use-live-board";
 
@@ -23,13 +26,23 @@ export function BoardScreen() {
   const cardQuery = useSearchParams().get("card");
   const openedQuery = useRef("");
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
+  const backgroundFile = useRef<HTMLInputElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [scoreOpen, setScoreOpen] = useState(false);
+  const [scoreMember, setScoreMember] = useState("all");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [extraMembers, setExtraMembers] = useState<Membership[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [deleteName, setDeleteName] = useState("");
+  const [dangerOpen, setDangerOpen] = useState(false);
 
   useEffect(() => {
-    if (!auth.loading && !auth.user) router.replace(`/login?next=/b/${boardId}`);
-  }, [auth.loading, auth.user, boardId, router]);
+    if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
+  }, [auth.loading, auth.signedIn, boardId, router]);
 
   useEffect(() => {
     if (!cardQuery || live.loading || openedQuery.current === cardQuery) return;
@@ -39,9 +52,13 @@ export function BoardScreen() {
     live.setOpenCardId(cardQuery);
   }, [cardQuery, live]);
 
+  if (!auth.loading && auth.signedIn && !auth.user) {
+    return <div className="flex min-h-screen items-center justify-center p-6 text-center text-sm text-[#ae2e24]">{auth.error || "You are still signed in. Refresh the page."}</div>;
+  }
+
   if (auth.loading || live.loading) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: live.detail?.board.background || "#0079bf" }}>
+      <div className="min-h-screen" style={boardSurface(live.detail?.board || { background: "#0079bf" })}>
         <FullScreenSpinner light />
       </div>
     );
@@ -79,7 +96,7 @@ export function BoardScreen() {
   }
 
   return (
-    <div className="relative flex h-screen flex-col" style={{ backgroundColor: board.background }}>
+    <div className="relative flex h-screen flex-col pb-14" style={boardSurface(board)}>
       <header className="flex h-14 shrink-0 items-center gap-2 bg-black/25 px-3 text-white">
         <Link href={`/w/${board.workspaceId}`} className="rounded-md px-2 py-1 hover:bg-white/15">
           <Logo light />
@@ -95,6 +112,7 @@ export function BoardScreen() {
           readOnly={!isAdmin || locked}
           className="w-56 rounded-md bg-white/15 px-2 py-1 text-lg font-semibold outline-none hover:bg-white/25 focus:bg-white focus:text-[#172b4d] read-only:hover:bg-white/15"
         />
+        {board.description ? <span className="hidden max-w-xs truncate text-sm text-white/80 sm:inline">{board.description}</span> : null}
         {locked ? <span className="rounded-md bg-white/20 px-2 py-1 text-xs font-semibold">Closed</span> : null}
         <span className="ml-1 inline-flex items-center gap-1 text-xs text-white/80">
           <span className={`h-2 w-2 rounded-full ${live.connected ? "bg-[#61bd4f]" : "bg-white/50"}`} />
@@ -110,10 +128,23 @@ export function BoardScreen() {
               ))}
           </div>
           {isAdmin ? (
+            <button type="button" className="rounded-md bg-white px-3 py-1 text-sm font-medium text-[#172b4d]" onClick={() => setScoreOpen(true)}>
+              Scorecard
+            </button>
+          ) : null}
+          {isAdmin ? (
+            <button type="button" className="rounded-md bg-white px-3 py-1 text-sm font-medium text-[#172b4d]" onClick={() => setShareOpen(true)}>
+              Invite
+            </button>
+          ) : null}
+          {isAdmin ? (
             <button type="button" className="rounded-md bg-white/15 px-2 py-1 text-sm hover:bg-white/25" onClick={() => setSettingsOpen(true)}>
               Settings
             </button>
           ) : null}
+          <Link href="/profile" className="rounded-md px-2 py-1 text-sm hover:bg-white/15">
+            Profile
+          </Link>
           <NotificationBell light />
           <button type="button" className="rounded-md px-2 py-1 text-sm hover:bg-white/15" onClick={() => void auth.signOut()}>
             Sign out
@@ -133,6 +164,16 @@ export function BoardScreen() {
           No tasks are tagged for you on this board yet. They show up here, with a notification, when the admin tags you.
         </div>
       ) : null}
+      {isAdmin && scoreOpen ? (
+        <BoardScorecard
+          lists={live.lists}
+          members={members}
+          selectedId={scoreMember}
+          onSelect={setScoreMember}
+          onOpen={(cardId) => live.setOpenCardId(cardId)}
+          onClose={() => setScoreOpen(false)}
+        />
+      ) : null}
       <div className="min-h-0 flex-1">
         <Board
           boardId={board.id}
@@ -149,17 +190,122 @@ export function BoardScreen() {
           locked={locked}
         />
       </div>
+      {shareOpen ? (
+        <Modal title="Share this board" onClose={() => setShareOpen(false)}>
+          <p className="text-sm text-[#5e6c84]">
+            Send an email invite. They sign in with that address and can open this board. Tag them on a card when you want them to see that task.
+          </p>
+          <form
+            className="mt-4 flex flex-col gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const email = inviteEmail.trim();
+              if (!email) return;
+              setShareBusy(true);
+              api
+                .invite(board.workspaceId, email, "member")
+                .then((member) => {
+                  setInviteEmail("");
+                  setExtraMembers((current) => (current.some((item) => item.id === member.id) ? current.map((item) => (item.id === member.id ? member : item)) : [...current, member]));
+                  setToast(member.emailSent ? `Invite emailed to ${member.email}.` : `Invite saved for ${member.email}. The email could not be sent.`);
+                })
+                .catch((error: unknown) => setToast(errorMessage(error)))
+                .finally(() => setShareBusy(false));
+            }}
+          >
+            <TextInput type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="name@althakeel.com" required />
+            <Button type="submit" disabled={shareBusy}>
+              {shareBusy ? "Sending..." : "Send invite"}
+            </Button>
+          </form>
+          <ul className="mt-4 flex flex-col gap-2 border-t border-[#dfe1e6] pt-3">
+            {[...members, ...extraMembers.filter((member) => !members.some((item) => item.id === member.id))].map((member) => (
+              <li key={member.id} className="flex items-center gap-2">
+                <Avatar name={member.name || member.email} photo={member.photo} size={28} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{member.name || member.email}</p>
+                  <p className="truncate text-xs text-[#5e6c84]">{member.status === "pending" ? "Invite sent" : member.email}</p>
+                </div>
+                {member.status === "pending" && member.inviteToken ? (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-[#0c66e4]"
+                    onClick={() => {
+                      const url = `${window.location.origin}/invite/${member.inviteToken}`;
+                      void navigator.clipboard.writeText(url).then(
+                        () => setToast("Invite link copied."),
+                        () => setToast(url),
+                      );
+                    }}
+                  >
+                    Copy link
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      ) : null}
       {settingsOpen ? (
         <Modal
           title="Board settings"
           onClose={() => {
             setSettingsOpen(false);
             setDeleteName("");
+            setDangerOpen(false);
           }}
         >
           <div className="flex flex-col gap-5">
             <section>
-              <h3 className="text-sm font-semibold">Background</h3>
+              <h3 className="text-sm font-semibold">Invite to this board</h3>
+              <p className="mt-1 text-sm text-[#5e6c84]">They get an email, sign in with that address, and can open this board.</p>
+              <form
+                className="mt-3 flex flex-col gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const email = inviteEmail.trim();
+                  if (!email) return;
+                  setShareBusy(true);
+                  api
+                    .invite(board.workspaceId, email, "member")
+                    .then((member) => {
+                      setInviteEmail("");
+                      setExtraMembers((current) =>
+                        current.some((item) => item.id === member.id) ? current.map((item) => (item.id === member.id ? member : item)) : [...current, member],
+                      );
+                      setToast(member.emailSent ? `Invite emailed to ${member.email}.` : `Invite saved for ${member.email}. The email could not be sent.`);
+                    })
+                    .catch((error: unknown) => setToast(errorMessage(error)))
+                    .finally(() => setShareBusy(false));
+                }}
+              >
+                <TextInput type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="name@althakeel.com" required />
+                <Button type="submit" disabled={shareBusy}>
+                  {shareBusy ? "Sending..." : "Send invite"}
+                </Button>
+              </form>
+            </section>
+            <section>
+              <h3 className="text-sm font-semibold">About this board</h3>
+              <TextArea
+                className="mt-2"
+                rows={2}
+                value={descriptionDraft ?? board.description}
+                placeholder="What is this board for?"
+                onChange={(event) => setDescriptionDraft(event.target.value)}
+                onBlur={() => {
+                  const next = (descriptionDraft ?? board.description).trim();
+                  setDescriptionDraft(null);
+                  if (next === board.description) return;
+                  api
+                    .updateBoard(board.id, { description: next })
+                    .then((saved) => live.updateBoard(saved))
+                    .catch((error: unknown) => setToast(errorMessage(error)));
+                }}
+              />
+            </section>
+            <section>
+              <h3 className="text-sm font-semibold">Color</h3>
               <div className="mt-2 flex flex-wrap gap-2">
                 {BOARD_BACKGROUNDS.map((item) => (
                   <button
@@ -167,63 +313,139 @@ export function BoardScreen() {
                     type="button"
                     aria-label={item.name}
                     className="h-8 w-10 rounded"
-                    style={{ backgroundColor: item.color, outline: item.color === board.background ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
+                    style={{ backgroundColor: item.color, outline: !board.backgroundImage && item.color === board.background ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
                     onClick={() => {
                       api
-                        .updateBoard(board.id, { background: item.color })
+                        .updateBoard(board.id, { background: item.color, backgroundImage: "" })
                         .then((saved) => live.updateBoard(saved))
                         .catch((error: unknown) => setToast(errorMessage(error)));
                     }}
                   />
                 ))}
               </div>
-            </section>
-            <section className="rounded-lg bg-[#f4f5f7] p-3">
-              <h3 className="text-sm font-semibold">{locked ? "Reopen board" : "Close board"}</h3>
-              <p className="mt-1 text-sm text-[#5e6c84]">
-                Closing pauses every change. People can still open the board and see their tasks. Deleting is only available after the board is closed.
-              </p>
-              <Button
-                type="button"
-                className="mt-3"
-                variant={locked ? "primary" : "quiet"}
-                onClick={() => {
+              <h3 className="mt-4 text-sm font-semibold">Gradient</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {BOARD_GRADIENTS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-label={item.name}
+                    className="h-8 w-14 rounded"
+                    style={{ backgroundImage: item.value, outline: board.backgroundImage === item.value ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
+                    onClick={() => {
+                      api
+                        .updateBoard(board.id, { backgroundImage: item.value })
+                        .then((saved) => live.updateBoard(saved))
+                        .catch((error: unknown) => setToast(errorMessage(error)));
+                    }}
+                  />
+                ))}
+              </div>
+              <h3 className="mt-4 text-sm font-semibold">Image</h3>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button type="button" variant="quiet" disabled={uploadingBackground} onClick={() => backgroundFile.current?.click()}>
+                  {uploadingBackground ? "Uploading..." : "Upload image"}
+                </Button>
+                {board.backgroundImage && !board.backgroundImage.startsWith("linear-gradient(") ? (
+                  <button
+                    type="button"
+                    className="text-sm text-[#ae2e24]"
+                    onClick={() => {
+                      api
+                        .updateBoard(board.id, { backgroundImage: "" })
+                        .then((saved) => live.updateBoard(saved))
+                        .catch((error: unknown) => setToast(errorMessage(error)));
+                    }}
+                  >
+                    Remove image
+                  </button>
+                ) : null}
+              </div>
+              <input
+                ref={backgroundFile}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  if (fileKind(file) !== "image") {
+                    setToast("Choose an image.");
+                    return;
+                  }
+                  if (file.size > 15 * 1024 * 1024) {
+                    setToast("Images need to be under 15 MB.");
+                    return;
+                  }
+                  setUploadingBackground(true);
                   api
-                    .updateBoard(board.id, { closed: !locked })
-                    .then((saved) => {
-                      live.updateBoard(saved);
-                      setDeleteName("");
+                    .imageKitAuth()
+                    .then((authParams) => {
+                      const imagekit = new ImageKit({ publicKey: authParams.publicKey, urlEndpoint: authParams.urlEndpoint });
+                      return imagekit.upload({
+                        file,
+                        fileName: file.name || "background",
+                        signature: authParams.signature,
+                        token: authParams.token,
+                        expire: authParams.expire,
+                        folder: `/boards/${board.id}/background`,
+                        useUniqueFileName: true,
+                      });
                     })
-                    .catch((error: unknown) => setToast(errorMessage(error)));
+                    .then((uploaded) => api.updateBoard(board.id, { backgroundImage: uploaded.url }))
+                    .then((saved) => live.updateBoard(saved))
+                    .catch((error: unknown) => setToast(errorMessage(error)))
+                    .finally(() => setUploadingBackground(false));
                 }}
-              >
-                {locked ? "Reopen board" : "Close board"}
-              </Button>
+              />
+              <p className="mt-2 text-xs text-[#5e6c84]">A photo covers the whole board. Color and gradient stay available if you remove it.</p>
             </section>
-            <section className="border-t border-[#dfe1e6] pt-4">
-              <h3 className="text-sm font-semibold text-[#ae2e24]">Delete board</h3>
-              {locked ? (
-                <form
-                  className="mt-2 flex flex-col gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (deleteName.trim() !== board.title) return;
+            {dangerOpen ? (
+              <section className="rounded-lg border border-[#dfe1e6] p-3">
+                <h3 className="text-sm font-semibold">{locked ? "Reopen board" : "Close board"}</h3>
+                <p className="mt-1 text-sm text-[#5e6c84]">Closing pauses changes. Delete stays unavailable until the board is closed.</p>
+                <Button
+                  type="button"
+                  className="mt-3"
+                  variant={locked ? "primary" : "quiet"}
+                  onClick={() => {
                     api
-                      .deleteBoard(board.id)
-                      .then(() => router.push(`/w/${board.workspaceId}`))
+                      .updateBoard(board.id, { closed: !locked })
+                      .then((saved) => {
+                        live.updateBoard(saved);
+                        setDeleteName("");
+                      })
                       .catch((error: unknown) => setToast(errorMessage(error)));
                   }}
                 >
-                  <p className="text-sm text-[#5e6c84]">This cannot be undone. Type “{board.title}” to confirm.</p>
-                  <TextInput value={deleteName} onChange={(event) => setDeleteName(event.target.value)} placeholder={board.title} />
-                  <Button type="submit" variant="danger" disabled={deleteName.trim() !== board.title}>
-                    Delete board
-                  </Button>
-                </form>
-              ) : (
-                <p className="mt-1 text-sm text-[#5e6c84]">Close the board first. The delete button appears here after that.</p>
-              )}
-            </section>
+                  {locked ? "Reopen board" : "Close board"}
+                </Button>
+                {locked ? (
+                  <form
+                    className="mt-4 flex flex-col gap-2 border-t border-[#dfe1e6] pt-3"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (deleteName.trim() !== board.title) return;
+                      api
+                        .deleteBoard(board.id)
+                        .then(() => router.push(`/w/${board.workspaceId}`))
+                        .catch((error: unknown) => setToast(errorMessage(error)));
+                    }}
+                  >
+                    <p className="text-sm text-[#5e6c84]">Type “{board.title}” to delete this board. The admin can restore it for 7 days from Recently deleted.</p>
+                    <TextInput value={deleteName} onChange={(event) => setDeleteName(event.target.value)} placeholder={board.title} />
+                    <Button type="submit" variant="danger" disabled={deleteName.trim() !== board.title}>
+                      Delete board
+                    </Button>
+                  </form>
+                ) : null}
+              </section>
+            ) : (
+              <button type="button" className="self-start text-xs text-[#5e6c84] underline" onClick={() => setDangerOpen(true)}>
+                More options
+              </button>
+            )}
           </div>
         </Modal>
       ) : null}
@@ -247,7 +469,7 @@ export function BoardScreen() {
             const snapshot = live.getLists();
             live.setLists((current) => current.map((list) => ({ ...list, cards: list.cards.filter((card) => card.id !== cardId) })));
             live.setOpenCardId(null);
-            api.deleteCard(cardId, clientMutationId).catch((error: unknown) => {
+            api.deleteCard(cardId, clientMutationId).then(() => setToast("Card deleted. The admin can restore it for 7 days from Recently deleted.")).catch((error: unknown) => {
               live.forgetMutation(clientMutationId);
               live.setLists(snapshot);
               setToast(errorMessage(error));

@@ -2,17 +2,17 @@ import type mongoose from "mongoose";
 import { CardModel, ListModel } from "./models";
 
 export async function nextCardPosition(listId: mongoose.Types.ObjectId): Promise<number> {
-  const last = await CardModel.findOne({ listId }).sort({ position: -1 }).select("position");
+  const last = await CardModel.findOne({ listId, deletedAt: null }).sort({ position: -1 }).select("position");
   return (last?.position ?? 0) + 1024;
 }
 
 export async function nextListPosition(boardId: mongoose.Types.ObjectId): Promise<number> {
-  const last = await ListModel.findOne({ boardId }).sort({ position: -1 }).select("position");
+  const last = await ListModel.findOne({ boardId, deletedAt: null }).sort({ position: -1 }).select("position");
   return (last?.position ?? 0) + 1024;
 }
 
 export async function rebalanceCards(listId: mongoose.Types.ObjectId) {
-  const cards = await CardModel.find({ listId }).sort({ position: 1, _id: 1 });
+  const cards = await CardModel.find({ listId, deletedAt: null }).sort({ position: 1, _id: 1 });
   const crowded = cards.some((card, index) => {
     const previous = cards[index - 1];
     return previous != null && Math.abs(card.position - previous.position) < 0.05;
@@ -37,7 +37,7 @@ export async function rebalanceCards(listId: mongoose.Types.ObjectId) {
 }
 
 export async function rebalanceLists(boardId: mongoose.Types.ObjectId) {
-  const lists = await ListModel.find({ boardId }).sort({ position: 1, _id: 1 });
+  const lists = await ListModel.find({ boardId, deletedAt: null }).sort({ position: 1, _id: 1 });
   const crowded = lists.some((list, index) => {
     const previous = lists[index - 1];
     return previous != null && Math.abs(list.position - previous.position) < 0.05;

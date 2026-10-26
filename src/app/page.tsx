@@ -10,7 +10,7 @@ export default function Page() {
   const router = useRouter();
   useEffect(() => {
     if (auth.loading) return;
-    router.replace(auth.user ? "/home" : "/login");
-  }, [auth.loading, auth.user, router]);
+    router.replace(auth.signedIn ? "/home" : "/login");
+  }, [auth.loading, auth.signedIn, router]);
   return <FullScreenSpinner />;
 }

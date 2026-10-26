@@ -5,9 +5,10 @@ import { isAdminEmail } from "../admin";
 import { assertAdmin } from "../guards";
 import { requireUser, requireWorkspace, roleAtLeast } from "../access";
 import { asyncHandler, bodyOf, HttpError, isDuplicateKey, param } from "../http";
-import { BoardModel, CommentModel, CardModel, ListModel, MembershipModel, WorkspaceModel } from "../models";
+import { BoardModel, MembershipModel, WorkspaceModel } from "../models";
 import { boardJson, membershipJson, membershipsForWorkspace } from "../serialize";
 import { sendInviteEmail } from "../mail";
+import { deletedDate } from "../trash";
 import { assertEmail, assertRole, cleanName } from "../validate";
 
 export const workspaceRouter = Router();
@@ -19,8 +20,8 @@ workspaceRouter.get(
     const memberships = await MembershipModel.find({ userId: user._id, status: "active" });
     const workspaceIds = memberships.map((membership) => membership.workspaceId);
     const [workspaces, boards, memberCounts] = await Promise.all([
-      WorkspaceModel.find({ _id: { $in: workspaceIds } }).sort({ name: 1 }),
-      BoardModel.find({ workspaceId: { $in: workspaceIds } }).sort({ createdAt: -1 }),
+      WorkspaceModel.find({ _id: { $in: workspaceIds }, deletedAt: null }).sort({ name: 1 }),
+      BoardModel.find({ workspaceId: { $in: workspaceIds }, deletedAt: null }).sort({ createdAt: -1 }),
       MembershipModel.aggregate<{ _id: unknown; count: number }>([
         { $match: { workspaceId: { $in: workspaceIds }, status: "active" } },
         { $group: { _id: "$workspaceId", count: { $sum: 1 } } },
@@ -80,7 +81,7 @@ workspaceRouter.get(
     const includeTokens = roleAtLeast(membership.role as Role, "admin");
     const [members, boards] = await Promise.all([
       membershipsForWorkspace(workspaceId, includeTokens),
-      BoardModel.find({ workspaceId }).sort({ createdAt: -1 }),
+      BoardModel.find({ workspaceId, deletedAt: null }).sort({ createdAt: -1 }),
     ]);
     res.json({
       id: String(workspace._id),
@@ -111,15 +112,11 @@ workspaceRouter.delete(
     assertAdmin(user);
     const workspaceId = param(req.params.workspaceId);
     const { workspace } = await requireWorkspace(String(user._id), workspaceId, "owner");
-    const openBoard = await BoardModel.findOne({ workspaceId, closed: { $ne: true } });
+    const openBoard = await BoardModel.findOne({ workspaceId, deletedAt: null, closed: { $ne: true } });
     if (openBoard) throw new HttpError(400, "Close every board in settings before deleting this workspace.");
-    const boardIds = await BoardModel.find({ workspaceId }).distinct("_id");
-    await CommentModel.deleteMany({ boardId: { $in: boardIds } });
-    await CardModel.deleteMany({ boardId: { $in: boardIds } });
-    await ListModel.deleteMany({ boardId: { $in: boardIds } });
-    await BoardModel.deleteMany({ workspaceId });
-    await MembershipModel.deleteMany({ workspaceId });
-    await workspace.deleteOne();
+    if (deletedDate(workspace)) throw new HttpError(404, "Workspace not found.");
+    workspace.set("deletedAt", new Date());
+    await workspace.save();
     res.json({ ok: true });
   }),
 );

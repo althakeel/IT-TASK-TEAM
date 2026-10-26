@@ -23,8 +23,8 @@ export function LoginScreen() {
   const configured = firebaseConfigured();
 
   useEffect(() => {
-    if (!auth.loading && auth.user) router.replace(next);
-  }, [auth.loading, auth.user, next, router]);
+    if (!auth.loading && auth.signedIn) router.replace(next);
+  }, [auth.loading, auth.signedIn, next, router]);
 
   useEffect(() => {
     void fetchHealth().then(setHealth);

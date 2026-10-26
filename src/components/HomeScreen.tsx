@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { errorMessage } from "@/lib/format";
 import { AppHeader, Button, ErrorText, FullScreenSpinner, Modal, TextInput } from "@/components/ui";
+import { boardSurface } from "@/lib/board-style";
 
 export function HomeScreen() {
   const auth = useAuth();
@@ -19,8 +20,8 @@ export function HomeScreen() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!auth.loading && !auth.user) router.replace("/login");
-  }, [auth.loading, auth.user, router]);
+    if (!auth.loading && !auth.signedIn) router.replace("/login");
+  }, [auth.loading, auth.signedIn, router]);
 
   useEffect(() => {
     if (!auth.user) return;
@@ -38,10 +39,14 @@ export function HomeScreen() {
     };
   }, [auth.user]);
 
+  if (!auth.loading && auth.signedIn && !auth.user) {
+    return <div className="flex min-h-screen items-center justify-center p-6 text-center text-sm text-[#ae2e24]">{auth.error || "You are still signed in. Refresh the page."}</div>;
+  }
+
   if (auth.loading || (auth.user && !workspaces && !error)) return <FullScreenSpinner />;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col pb-16">
       <AppHeader />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
         {auth.accepted.length > 0 ? (
@@ -55,9 +60,17 @@ export function HomeScreen() {
         <div className="mb-6 flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Your workspaces</h1>
           {auth.user?.isAdmin ? (
-            <Button type="button" onClick={() => setCreating(true)}>
-              New workspace
-            </Button>
+            <div className="flex items-center gap-4">
+              <Link href="/kpis" className="text-sm font-medium text-[#0c66e4]">
+                KPIs
+              </Link>
+              <Link href="/trash" className="text-sm font-medium text-[#0c66e4]">
+                Recently deleted
+              </Link>
+              <Button type="button" onClick={() => setCreating(true)}>
+                New workspace
+              </Button>
+            </div>
           ) : null}
         </div>
         <ErrorText>{error}</ErrorText>
@@ -93,8 +106,8 @@ export function HomeScreen() {
                   <Link
                     key={board.id}
                     href={`/b/${board.id}`}
-                    className="flex h-24 items-end rounded-lg p-3 text-sm font-semibold text-white shadow-sm"
-                    style={{ backgroundColor: board.background }}
+                    className="flex h-24 items-end rounded-lg bg-cover bg-center p-3 text-sm font-semibold text-white shadow-sm"
+                    style={boardSurface(board)}
                   >
                     {board.title}
                   </Link>

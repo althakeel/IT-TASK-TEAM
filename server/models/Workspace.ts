@@ -4,6 +4,7 @@ const workspaceSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
     ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false },
 );

@@ -25,6 +25,8 @@ export function boardJson(board: BoardDoc): BoardSummary {
     workspaceId: String(board.workspaceId),
     title: board.title,
     background: board.background,
+    backgroundImage: board.backgroundImage || "",
+    description: board.description || "",
     closed: Boolean(board.closed),
     createdAt: iso(board.get("createdAt")),
   };
@@ -84,7 +86,10 @@ export function commentJson(
     authorId: String(comment.authorId),
     authorName: author?.name || "Former member",
     authorPhoto: author?.photo || "",
-    text: comment.text,
+    text: comment.text || "",
+    channel: comment.channel === "chat" ? "chat" : "comment",
+    imageUrl: comment.imageUrl || "",
+    imageName: comment.imageName || "",
     createdAt: iso(comment.get("createdAt")),
   };
 }

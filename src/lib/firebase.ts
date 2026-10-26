@@ -1,15 +1,23 @@
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
+import { browserLocalPersistence, getAuth, setPersistence, type Auth } from "firebase/auth";
 import { firebaseConfigured } from "@/lib/config";
 
 let analyticsStarted = false;
+let persistenceReady: Promise<void> | null = null;
 
 export function getFirebaseAuth(): Auth | null {
   if (typeof window === "undefined" || !firebaseConfigured()) return null;
   const app = getApps()[0] || initializeApp(firebaseConfig());
+  const auth = getAuth(app);
+  persistenceReady ??= setPersistence(auth, browserLocalPersistence).then(() => undefined);
   startAnalytics(app);
-  return getAuth(app);
+  return auth;
+}
+
+export function authPersistenceReady(): Promise<void> {
+  getFirebaseAuth();
+  return persistenceReady ?? Promise.resolve();
 }
 
 function firebaseConfig() {

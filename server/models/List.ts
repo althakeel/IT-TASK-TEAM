@@ -5,6 +5,7 @@ const listSchema = new Schema(
     boardId: { type: Schema.Types.ObjectId, ref: "Board", required: true, index: true },
     title: { type: String, required: true, trim: true },
     position: { type: Number, required: true },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false },
 );

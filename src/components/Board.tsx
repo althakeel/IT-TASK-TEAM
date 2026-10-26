@@ -28,7 +28,7 @@ import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
 import { upsertCard } from "@/lib/board-state";
 import { errorMessage, formatDue, isOverdue } from "@/lib/format";
-import { Avatar, cx } from "@/components/ui";
+import { Avatar, Button, cx, Modal, TextInput } from "@/components/ui";
 
 type BoardProps = {
   boardId: string;
@@ -240,6 +240,7 @@ export function Board({
     setLists((prev) => prev.filter((list) => list.id !== listId));
     try {
       await api.deleteList(listId, mutationId);
+      onError("List deleted. The admin can restore it for 7 days from Recently deleted.");
     } catch (error) {
       forgetMutation(mutationId);
       setLists(snapshot);
@@ -402,7 +403,8 @@ function ListColumn({
   const [title, setTitle] = useState(list.title);
   const [adding, setAdding] = useState(false);
   const [cardTitle, setCardTitle] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteName, setDeleteName] = useState("");
 
   return (
     <div
@@ -437,20 +439,17 @@ function ListColumn({
           </button>
         )}
         {onDelete && !locked ? (
-          confirmDelete ? (
-            <button type="button" onClick={onDelete} className="rounded-md px-2 py-1 text-xs font-medium text-[#ae2e24] hover:bg-[#091e420f]">
-              Confirm
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label={`Delete ${list.title}`}
-              onClick={() => setConfirmDelete(true)}
-              className="rounded-md px-2 py-1 text-[#5e6c84] hover:bg-[#091e420f]"
-            >
-              ···
-            </button>
-          )
+          <button
+            type="button"
+            aria-label={`List options for ${list.title}`}
+            onClick={() => {
+              setDeleteName("");
+              setDeleteOpen(true);
+            }}
+            className="rounded-md px-2 py-1 text-[#5e6c84] hover:bg-[#091e420f]"
+          >
+            ···
+          </button>
         ) : null}
       </div>
       <div ref={setListDropRef} className="list-scroll min-h-2 flex-1 overflow-y-auto px-2 py-1">
@@ -506,6 +505,34 @@ function ListColumn({
         )}
       </div>
       )}
+      {deleteOpen && onDelete ? (
+        <Modal
+          title="Delete list"
+          onClose={() => {
+            setDeleteOpen(false);
+            setDeleteName("");
+          }}
+        >
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (deleteName.trim() !== list.title) return;
+              onDelete();
+              setDeleteOpen(false);
+              setDeleteName("");
+            }}
+          >
+            <p className="text-sm text-[#5e6c84]">
+              Type “{list.title}” to delete this list. It leaves the board, and the admin can restore it for 7 days from Recently deleted.
+            </p>
+            <TextInput value={deleteName} onChange={(event) => setDeleteName(event.target.value)} placeholder={list.title} autoFocus />
+            <Button type="submit" variant="danger" disabled={deleteName.trim() !== list.title}>
+              Delete list
+            </Button>
+          </form>
+        </Modal>
+      ) : null}
     </div>
   );
 }

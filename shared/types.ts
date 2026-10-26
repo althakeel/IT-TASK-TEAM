@@ -27,8 +27,61 @@ export type BoardSummary = {
   workspaceId: string;
   title: string;
   background: string;
+  backgroundImage: string;
+  description: string;
   closed: boolean;
   createdAt: string;
+};
+
+export type KpiStatus = "onTime" | "late" | "overdue" | "open";
+
+export type MemberKpiTask = {
+  id: string;
+  title: string;
+  boardId: string;
+  boardTitle: string;
+  listTitle: string;
+  dueDate: string | null;
+  status: KpiStatus;
+};
+
+export type MemberKpis = {
+  userId: string;
+  name: string;
+  email: string;
+  photo: string;
+  tasks: number;
+  onTime: number;
+  late: number;
+  overdue: number;
+  open: number;
+  items: MemberKpiTask[];
+};
+
+export type KpiReport = {
+  members: MemberKpis[];
+  workspaces: { id: string; name: string }[];
+};
+
+export type TrashKind = "workspace" | "board" | "list" | "card";
+
+export type TrashItem = {
+  id: string;
+  kind: TrashKind;
+  title: string;
+  detail: string;
+  deletedAt: string;
+  daysLeft: number;
+};
+
+export type MentionedTask = {
+  id: string;
+  title: string;
+  boardId: string;
+  boardTitle: string;
+  listTitle: string;
+  dueDate: string | null;
+  updatedAt: string;
 };
 
 export type AppNotification = {
@@ -102,6 +155,9 @@ export type Comment = {
   authorName: string;
   authorPhoto: string;
   text: string;
+  channel: "comment" | "chat";
+  imageUrl: string;
+  imageName: string;
   createdAt: string;
 };
 
@@ -158,6 +214,15 @@ export const BOARD_BACKGROUNDS = [
   { id: "slate", name: "Slate", color: "#4d6b82" },
   { id: "sky", name: "Sky", color: "#00aecc" },
   { id: "night", name: "Night", color: "#344563" },
+] as const;
+
+export const BOARD_GRADIENTS = [
+  { id: "dusk", name: "Dusk", value: "linear-gradient(160deg, #0f2027 0%, #203a43 50%, #2c5364 100%)" },
+  { id: "aurora", name: "Aurora", value: "linear-gradient(135deg, #134e5e 0%, #71b280 100%)" },
+  { id: "ember", name: "Ember", value: "linear-gradient(135deg, #cb2d3e 0%, #ef473a 100%)" },
+  { id: "violet", name: "Violet", value: "linear-gradient(135deg, #4776e6 0%, #8e54e9 100%)" },
+  { id: "sand", name: "Sand", value: "linear-gradient(160deg, #c79081 0%, #dfa579 100%)" },
+  { id: "forest", name: "Forest", value: "linear-gradient(160deg, #134e4a 0%, #1f7a4d 55%, #86c98a 100%)" },
 ] as const;
 
 export const LABEL_PRESETS = [

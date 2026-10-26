@@ -1,11 +1,14 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { ensureAdminWorkspace } from "../admin";
+import { requireUser } from "../access";
 import { mongoReady } from "../db";
 import { verifyFirebaseToken } from "../firebase";
 import { asyncHandler, bodyOf, HttpError } from "../http";
-import { MembershipModel, UserModel, WorkspaceModel } from "../models";
+import { BoardModel, CardModel, ListModel, MembershipModel, UserModel, WorkspaceModel } from "../models";
 import { userJson } from "../serialize";
+import { deletedDate } from "../trash";
+import { assertImageKitUrl } from "../imagekit";
 
 export const authRouter = Router();
 
@@ -35,14 +38,42 @@ authRouter.post(
       user = await UserModel.create({ firebaseUid: decoded.uid, email, name, photo });
     } else {
       user.email = email;
-      if (requestedName || tokenName) user.name = requestedName || tokenName;
-      if (photo) user.photo = photo;
+      if (requestedName) user.name = requestedName;
+      const endpoint = process.env.IMAGEKIT_URL_ENDPOINT || "";
+      const keepsUploadedPhoto = Boolean(endpoint && user.photo?.startsWith(endpoint));
+      if (!keepsUploadedPhoto && photo) user.photo = photo;
       await user.save();
     }
 
     const accepted = await acceptPendingInvites(user._id, user.email);
     await ensureAdminWorkspace(user);
     res.json({ user: userJson(user), accepted });
+  }),
+);
+
+authRouter.patch(
+  "/me",
+  asyncHandler(async (req, res) => {
+    const user = await requireUser(req);
+    const body = bodyOf(req);
+    if (typeof body.name !== "string" || !body.name.trim()) throw new HttpError(400, "Enter your name.");
+    user.name = body.name.trim().slice(0, 80);
+    await user.save();
+    res.json(userJson(user));
+  }),
+);
+
+authRouter.post(
+  "/me/photo",
+  asyncHandler(async (req, res) => {
+    const user = await requireUser(req);
+    const body = bodyOf(req);
+    const photo = typeof body.photo === "string" ? body.photo.trim() : "";
+    if (!photo) throw new HttpError(400, "Choose a photo.");
+    assertImageKitUrl(photo);
+    user.photo = photo.slice(0, 2000);
+    await user.save();
+    res.json(userJson(user));
   }),
 );
 
@@ -59,6 +90,44 @@ authRouter.get(
     const user = await UserModel.findOne({ firebaseUid: decoded.uid });
     if (!user) throw new HttpError(401, "Account is not ready yet.");
     res.json(userJson(user));
+  }),
+);
+
+authRouter.get(
+  "/me/tasks",
+  asyncHandler(async (req, res) => {
+    const user = await requireUser(req);
+    const [cards, memberships] = await Promise.all([
+      CardModel.find({ assigneeIds: user._id, deletedAt: null }).sort({ updatedAt: -1 }).limit(50),
+      MembershipModel.find({ userId: user._id, status: "active" }).select("workspaceId"),
+    ]);
+    const membershipIds = memberships.map((row) => row.workspaceId);
+    const [boards, lists, workspaces] = await Promise.all([
+      BoardModel.find({ _id: { $in: cards.map((card) => card.boardId) }, deletedAt: null }),
+      ListModel.find({ _id: { $in: cards.map((card) => card.listId) }, deletedAt: null }).select("title"),
+      WorkspaceModel.find({ _id: { $in: membershipIds }, deletedAt: null }).select("_id"),
+    ]);
+    const allowed = new Set(workspaces.map((workspace) => String(workspace._id)));
+    const boardById = new Map(boards.map((board) => [String(board._id), board]));
+    const listById = new Map(lists.map((list) => [String(list._id), list.title]));
+    res.json(
+      cards.flatMap((card) => {
+        const board = boardById.get(String(card.boardId));
+        if (!board || !allowed.has(String(board.workspaceId)) || !listById.has(String(card.listId))) return [];
+        const updated = card.get("updatedAt");
+        return [
+          {
+            id: String(card._id),
+            title: card.title,
+            boardId: String(card.boardId),
+            boardTitle: board.title,
+            listTitle: listById.get(String(card.listId)) || "List",
+            dueDate: card.dueDate || null,
+            updatedAt: updated instanceof Date ? updated.toISOString() : new Date().toISOString(),
+          },
+        ];
+      }),
+    );
   }),
 );
 

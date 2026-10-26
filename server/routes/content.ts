@@ -4,11 +4,13 @@ import { isAdminEmail } from "../admin";
 import { requireBoard, requireUser } from "../access";
 import { assertAdmin, assertCanViewCard } from "../guards";
 import { asyncHandler, bodyOf, clientMutationId, HttpError, param } from "../http";
-import { imageKitClient } from "../imagekit";
+import { assertImageKitUrl, imageKitClient } from "../imagekit";
 import { CardModel, CommentModel, ListModel, UserModel } from "../models";
 import { notifyUsers } from "../notify";
+import { deletedDate } from "../trash";
 import { cardJson, commentJson, listJson } from "../serialize";
 import {
+  activeMemberIds,
   assertPosition,
   cleanName,
   optionalText,
@@ -48,7 +50,7 @@ contentRouter.patch(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const list = await ListModel.findById(param(req.params.listId));
-    if (!list) throw new HttpError(404, "List not found.");
+    if (!list || deletedDate(list)) throw new HttpError(404, "List not found.");
     const { board } = await requireBoard(String(user._id), String(list.boardId));
     if (board.closed) throw new HttpError(403, "This board is closed.");
     const body = bodyOf(req);
@@ -84,16 +86,14 @@ contentRouter.delete(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const list = await ListModel.findById(param(req.params.listId));
-    if (!list) throw new HttpError(404, "List not found.");
+    if (!list || deletedDate(list)) throw new HttpError(404, "List not found.");
     const { board } = await requireBoard(String(user._id), String(list.boardId));
     assertAdmin(user);
     if (board.closed) throw new HttpError(403, "This board is closed.");
-    const cards = await CardModel.find({ listId: list._id }).select("_id");
-    await CommentModel.deleteMany({ cardId: { $in: cards.map((card) => card._id) } });
-    await CardModel.deleteMany({ listId: list._id });
     const boardId = String(list.boardId);
     const listId = String(list._id);
-    await list.deleteOne();
+    list.set("deletedAt", new Date());
+    await list.save();
     emitBoard(boardId, "list:deleted", { clientMutationId: clientMutationId(bodyOf(req)), listId });
     res.json({ ok: true });
   }),
@@ -104,7 +104,7 @@ contentRouter.post(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const list = await ListModel.findById(param(req.params.listId));
-    if (!list) throw new HttpError(404, "List not found.");
+    if (!list || deletedDate(list)) throw new HttpError(404, "List not found.");
     const { board } = await requireBoard(String(user._id), String(list.boardId));
     if (board.closed) throw new HttpError(403, "This board is closed.");
     const body = bodyOf(req);
@@ -133,7 +133,7 @@ contentRouter.patch(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const card = await CardModel.findById(param(req.params.cardId));
-    if (!card) throw new HttpError(404, "Card not found.");
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
     assertCanViewCard(user, card.assigneeIds);
     if (board.closed) throw new HttpError(403, "This board is closed.");
@@ -152,6 +152,14 @@ contentRouter.patch(
     if (body.checklist !== undefined) card.set("checklist", parseChecklist(body.checklist));
     if (body.assigneeIds !== undefined) {
       card.set("assigneeIds", await parseAssignees(body.assigneeIds, String(board.workspaceId)));
+    }
+    if (Array.isArray(body.mentionIds)) {
+      const extra = await activeMemberIds(String(board.workspaceId), body.mentionIds.map(String));
+      const merged = [...new Set([...card.assigneeIds.map((id) => String(id)), ...extra])];
+      card.set(
+        "assigneeIds",
+        merged.map((id) => new mongoose.Types.ObjectId(id)),
+      );
     }
     if (body.attachments !== undefined) card.set("attachments", parseAttachments(body.attachments));
     if (body.listId !== undefined) {
@@ -255,19 +263,18 @@ contentRouter.delete(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const card = await CardModel.findById(param(req.params.cardId));
-    if (!card) throw new HttpError(404, "Card not found.");
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
     assertAdmin(user);
     if (board.closed) throw new HttpError(403, "This board is closed.");
-    await CommentModel.deleteMany({ cardId: card._id });
     const payload = {
       clientMutationId: clientMutationId(bodyOf(req)),
       cardId: String(card._id),
       listId: String(card.listId),
     };
-    const boardId = String(card.boardId);
     const recipients = card.assigneeIds.map((id) => String(id));
-    await card.deleteOne();
+    card.set("deletedAt", new Date());
+    await card.save();
     emitToUsers(recipients, "card:deleted", payload, true);
     res.json({ ok: true });
   }),
@@ -278,7 +285,7 @@ contentRouter.post(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const card = await CardModel.findById(param(req.params.cardId));
-    if (!card) throw new HttpError(404, "Card not found.");
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
     assertCanViewCard(user, card.assigneeIds);
     if (board.closed) throw new HttpError(403, "This board is closed.");
@@ -305,7 +312,7 @@ contentRouter.delete(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const card = await CardModel.findById(param(req.params.cardId));
-    if (!card) throw new HttpError(404, "Card not found.");
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
     assertAdmin(user);
     if (board.closed) throw new HttpError(403, "This board is closed.");
@@ -342,7 +349,7 @@ contentRouter.get(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const card = await CardModel.findById(param(req.params.cardId));
-    if (!card) throw new HttpError(404, "Card not found.");
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     await requireBoard(String(user._id), String(card.boardId));
     assertCanViewCard(user, card.assigneeIds);
     const comments = await CommentModel.find({ cardId: card._id }).sort({ createdAt: 1 });
@@ -357,25 +364,57 @@ contentRouter.post(
   asyncHandler(async (req, res) => {
     const user = await requireUser(req);
     const card = await CardModel.findById(param(req.params.cardId));
-    if (!card) throw new HttpError(404, "Card not found.");
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
     const { board } = await requireBoard(String(user._id), String(card.boardId));
     assertCanViewCard(user, card.assigneeIds);
     if (board.closed) throw new HttpError(403, "This board is closed.");
     const body = bodyOf(req);
+    const channel = body.channel === "chat" ? "chat" : "comment";
+    const text = typeof body.text === "string" ? body.text.trim().slice(0, 4000) : "";
+    const image = parseChatImage(body, channel);
+    if (!text && !image.imageUrl) throw new HttpError(400, "Write a message or attach an image.");
     const comment = await CommentModel.create({
       cardId: card._id,
       boardId: card.boardId,
       authorId: user._id,
-      text: cleanName(body.text, "Comment", 4000),
+      text,
+      channel,
+      imageUrl: image.imageUrl,
+      imageFileId: image.imageFileId,
+      imageName: image.imageName,
     });
+    const mentioned = Array.isArray(body.mentionIds)
+      ? await activeMemberIds(String(board.workspaceId), body.mentionIds.map(String))
+      : [];
+    if (mentioned.length > 0) {
+      const merged = [...new Set([...card.assigneeIds.map((id) => String(id)), ...mentioned])];
+      card.set(
+        "assigneeIds",
+        merged.map((id) => new mongoose.Types.ObjectId(id)),
+      );
+      await card.save();
+      const cardDto = cardJson(card);
+      emitToUsers(cardDto.assigneeIds, "card:updated", { card: cardDto }, true);
+    }
     const dto = commentJson(comment, user);
     const recipients = card.assigneeIds.map((id) => String(id));
     emitToUsers(recipients, "comment:created", { clientMutationId: clientMutationId(body), comment: dto }, true);
+    const actorId = String(user._id);
+    if (mentioned.length > 0) {
+      await notifyUsers({
+        recipientIds: mentioned,
+        actorId,
+        title: "You were tagged",
+        body: `${user.name} tagged you on “${card.title}”.`,
+        boardId: String(card.boardId),
+        cardId: String(card._id),
+      });
+    }
     await notifyUsers({
-      recipientIds: recipients,
-      actorId: String(user._id),
-      title: "New comment",
-      body: `${user.name} commented on “${card.title}”.`,
+      recipientIds: recipients.filter((id) => !mentioned.includes(id)),
+      actorId,
+      title: channel === "chat" ? "New chat" : "New comment",
+      body: channel === "chat" ? `${user.name} sent a message on “${card.title}”.` : `${user.name} commented on “${card.title}”.`,
       boardId: String(card.boardId),
       cardId: String(card._id),
     });
@@ -403,3 +442,14 @@ contentRouter.delete(
     res.json({ ok: true });
   }),
 );
+
+function parseChatImage(body: Record<string, unknown>, channel: "comment" | "chat"): { imageUrl: string; imageFileId: string; imageName: string } {
+  const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";
+  if (!imageUrl) return { imageUrl: "", imageFileId: "", imageName: "" };
+  if (channel !== "chat") throw new HttpError(400, "Images belong in chat.");
+  assertImageKitUrl(imageUrl);
+  const imageFileId = typeof body.imageFileId === "string" ? body.imageFileId : "";
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(imageFileId)) throw new HttpError(400, "Invalid file id.");
+  const imageName = typeof body.imageName === "string" && body.imageName.trim() ? body.imageName.trim().slice(0, 140) : "image";
+  return { imageUrl, imageFileId, imageName };
+}

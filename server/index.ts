@@ -14,6 +14,8 @@ import { notificationRouter } from "./routes/notifications";
 import { boardRouter } from "./routes/boards";
 import { contentRouter } from "./routes/content";
 import { imageKitRouter } from "./routes/imagekit";
+import { kpiRouter } from "./routes/kpis";
+import { trashRouter } from "./routes/trash";
 import { workspaceRouter } from "./routes/workspaces";
 import { attachSocket } from "./socket";
 
@@ -48,9 +50,11 @@ app.get("/api/health", (_req, res) => {
 app.use("/api", authRouter);
 app.use("/api", notificationRouter);
 app.use("/api", workspaceRouter);
+app.use("/api", trashRouter);
 app.use("/api", boardRouter);
 app.use("/api", contentRouter);
 app.use("/api", imageKitRouter);
+app.use("/api", kpiRouter);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Not found." });

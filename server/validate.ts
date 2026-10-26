@@ -1,11 +1,12 @@
 import { randomUUID } from "crypto";
 import mongoose from "mongoose";
-import { BOARD_BACKGROUNDS, LABEL_PRESETS, type Attachment, type ChecklistItem, type Label, type Role } from "../shared/types";
+import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, LABEL_PRESETS, type Attachment, type ChecklistItem, type Label, type Role } from "../shared/types";
 import { HttpError } from "./http";
 import { assertImageKitUrl } from "./imagekit";
 import { MembershipModel } from "./models";
 
 const backgrounds = new Set<string>(BOARD_BACKGROUNDS.map((item) => item.color));
+const gradients = new Set<string>(BOARD_GRADIENTS.map((item) => item.value));
 const labelColors = new Map<string, string>(LABEL_PRESETS.map((item) => [item.color, item.name]));
 
 export function cleanName(value: unknown, label: string, max: number): string {
@@ -48,6 +49,15 @@ export function assertBackground(value: unknown): string {
   if (typeof value !== "string" || !backgrounds.has(value)) {
     throw new HttpError(400, "Choose a board color.");
   }
+  return value;
+}
+
+export function assertBoardBackdrop(value: unknown): string {
+  if (value === null || value === "") return "";
+  if (typeof value !== "string") throw new HttpError(400, "Choose a background.");
+  if (gradients.has(value)) return value;
+  assertImageKitUrl(value);
+  if (value.length > 2000) throw new HttpError(400, "That image address is too long.");
   return value;
 }
 
@@ -122,6 +132,18 @@ export function parseAttachments(value: unknown): Attachment[] {
   return value.map((item) => parseAttachment(item));
 }
 
+export async function activeMemberIds(workspaceId: string, ids: string[]): Promise<string[]> {
+  const unique = [...new Set(ids.filter((id) => mongoose.isValidObjectId(id)))];
+  if (!unique.length) return [];
+  const members = await MembershipModel.find({
+    workspaceId,
+    status: "active",
+    role: "member",
+    userId: { $in: unique },
+  }).select("userId");
+  return members.map((member) => String(member.userId));
+}
+
 export async function parseAssignees(value: unknown, workspaceId: string): Promise<mongoose.Types.ObjectId[]> {
   if (!Array.isArray(value)) throw new HttpError(400, "Assignees are invalid.");
   const ids = [...new Set(value.map((item) => String(item)))];
@@ -131,8 +153,9 @@ export async function parseAssignees(value: unknown, workspaceId: string): Promi
   const members = await MembershipModel.find({
     workspaceId,
     status: "active",
+    role: "member",
     userId: { $in: ids },
   }).select("userId");
-  if (members.length !== ids.length) throw new HttpError(400, "Assignee is not in this workspace.");
+  if (members.length !== ids.length) throw new HttpError(400, "Only invited members who have joined can be tagged.");
   return ids.map((id) => new mongoose.Types.ObjectId(id));
 }

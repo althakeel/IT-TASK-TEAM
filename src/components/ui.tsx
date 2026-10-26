@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { NotificationBell } from "@/components/Notifications";
 
@@ -23,16 +23,20 @@ export function Logo({ light = false }: { light?: boolean }) {
 }
 
 export function Avatar({ name, photo, size = 28 }: { name: string; photo?: string; size?: number }) {
-  const initial = (name || "?").trim().slice(0, 1).toUpperCase() || "?";
-  if (photo) {
+  const [failed, setFailed] = useState(false);
+  const label = (name || "Member").trim() || "Member";
+  const initial = label.slice(0, 1).toUpperCase();
+  if (photo && !failed) {
     return (
       // Firebase and ImageKit photos come from several hosts.
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={photo}
-        alt=""
+        alt={label}
+        title={label}
         width={size}
         height={size}
+        onError={() => setFailed(true)}
         className="rounded-full object-cover"
         style={{ width: size, height: size }}
       />
@@ -40,6 +44,7 @@ export function Avatar({ name, photo, size = 28 }: { name: string; photo?: strin
   }
   return (
     <span
+      title={label}
       className="inline-flex items-center justify-center rounded-full bg-[#0c66e4] font-semibold text-white"
       style={{ width: size, height: size, fontSize: size < 26 ? 11 : 12 }}
     >
@@ -57,12 +62,14 @@ export function AppHeader() {
       </Link>
       {user ? (
         <div className="ml-auto flex items-center gap-3">
-          <span className="hidden text-sm text-[#5e6c84] sm:inline">
+          <Link href="/profile" className="hidden text-sm text-[#5e6c84] hover:text-[#172b4d] sm:inline">
             {user.name}
             {user.isAdmin ? " · Admin" : ""}
-          </span>
+          </Link>
           <NotificationBell />
-          <Avatar name={user.name} photo={user.photo} />
+          <Link href="/profile" title="Profile settings" aria-label="Profile settings" className="rounded-full hover:ring-2 hover:ring-[#0c66e4]">
+            <Avatar name={user.name} photo={user.photo} />
+          </Link>
           <button type="button" onClick={() => void signOut()} className="text-sm font-medium text-[#5e6c84] hover:text-[#172b4d]">
             Sign out
           </button>
@@ -143,7 +150,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 p-6" onMouseDown={onClose}>
       <div
-        className="mt-10 w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+        className="mt-10 max-h-[min(640px,calc(100vh-5rem))] w-full max-w-md overflow-y-auto rounded-xl bg-white p-5 shadow-xl"
         role="dialog"
         aria-modal="true"
         aria-label={title}

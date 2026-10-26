@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { fileKind } from "@/lib/board-state";
 import { errorMessage, formatDue, formatWhen, isOverdue } from "@/lib/format";
 import { Avatar, cx } from "@/components/ui";
+import { MentionField, MentionText, mentionIdsIn, mentionPeople } from "@/components/MentionField";
 
 type CardDialogProps = {
   card: Card;
@@ -47,15 +48,22 @@ export function CardDialog({
   const description = descriptionDraft ?? card.description;
   const [checkText, setCheckText] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [chatText, setChatText] = useState("");
+  const [chatImage, setChatImage] = useState<{ url: string; fileId: string; name: string } | null>(null);
+  const [pane, setPane] = useState<"comments" | "chat">("chat");
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteName, setDeleteName] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const chatFileRef = useRef<HTMLInputElement>(null);
+  const mentionOpen = useRef(false);
   const people = members.filter((member) => member.status === "active" && member.userId);
+  const tagPeople = mentionPeople(members);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !mentionOpen.current) onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -109,15 +117,17 @@ export function CardDialog({
 
             <section className="mt-5">
               <h3 className="mb-2 text-sm font-semibold">Description</h3>
-              <textarea
+              <MentionField
                 value={description}
+                people={tagPeople}
+                menuRef={mentionOpen}
                 rows={4}
-                placeholder="Add a more detailed description..."
-                onChange={(event) => setDescriptionDraft(event.target.value)}
+                placeholder="Add a more detailed description... Type @ to tag a member"
+                onChange={(next) => setDescriptionDraft(next)}
                 onBlur={() => {
-                  const next = description;
+                  const next = descriptionDraft ?? card.description;
                   setDescriptionDraft(null);
-                  if (next !== card.description) void save({ description: next });
+                  if (next !== card.description) void save({ description: next, mentionIds: mentionIdsIn(next, tagPeople) });
                 }}
                 className="w-full resize-y rounded-lg border border-transparent bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
               />
@@ -231,70 +241,124 @@ export function CardDialog({
             </section>
 
             <section className="mt-5">
-              <h3 className="mb-2 text-sm font-semibold">Comments</h3>
-              <form
-                className="mb-3 flex gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const text = commentText.trim();
-                  if (!text) return;
-                  const clientMutationId = trackMutation();
-                  api
-                    .addComment(card.id, text, clientMutationId)
-                    .then((comment) => {
-                      onComments(comments.some((item) => item.id === comment.id) ? comments : [...comments, comment]);
-                      setCommentText("");
-                      setError(null);
-                    })
-                    .catch((err: unknown) => {
-                      forgetMutation(clientMutationId);
-                      setError(errorMessage(err));
-                    });
-                }}
-              >
-                <textarea
-                  value={commentText}
-                  onChange={(event) => setCommentText(event.target.value)}
-                  rows={2}
-                  placeholder="Write a comment..."
-                  className="flex-1 resize-none rounded-lg border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
-                />
-                <button type="submit" className="h-fit rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-medium text-white">
-                  Send
+              <div className="mb-3 flex gap-1 rounded-lg bg-[#091e420f] p-1">
+                <button
+                  type="button"
+                  onClick={() => setPane("chat")}
+                  className={cx("flex-1 rounded-md px-3 py-1.5 text-sm font-semibold", pane === "chat" ? "bg-white text-[#172b4d] shadow-sm" : "text-[#44546f]")}
+                >
+                  Chat
                 </button>
-              </form>
-              <ul className="flex flex-col gap-3">
-                {comments.map((comment) => (
-                  <li key={comment.id} className="flex gap-2">
-                    <Avatar name={comment.authorName} photo={comment.authorPhoto} />
-                    <div className="min-w-0 flex-1 rounded-lg bg-white px-3 py-2">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-sm font-semibold">{comment.authorName}</span>
-                        <span className="text-xs text-[#5e6c84]">{formatWhen(comment.createdAt)}</span>
-                        {canDelete && !locked ? (
-                          <button
-                            type="button"
-                            className="ml-auto text-xs text-[#5e6c84] hover:text-[#ae2e24]"
-                            onClick={() => {
-                              const clientMutationId = trackMutation();
-                              api
-                                .deleteComment(comment.id, clientMutationId)
-                                .then(() => onComments(comments.filter((item) => item.id !== comment.id)))
-                                .catch((err: unknown) => {
-                                  forgetMutation(clientMutationId);
-                                  setError(errorMessage(err));
-                                });
-                            }}
-                          >
-                            Delete
-                          </button>
-                        ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPane("comments")}
+                  className={cx("flex-1 rounded-md px-3 py-1.5 text-sm font-semibold", pane === "comments" ? "bg-white text-[#172b4d] shadow-sm" : "text-[#44546f]")}
+                >
+                  Comments
+                </button>
+              </div>
+              {pane === "chat" ? (
+                <>
+                  <ul className="mb-3 flex max-h-72 flex-col gap-3 overflow-y-auto">
+                    {comments.filter((comment) => (comment.channel || "comment") === "chat").length === 0 ? (
+                      <li className="text-sm text-[#5e6c84]">No messages yet. Type @ to tag a member, or attach an image.</li>
+                    ) : null}
+                    {comments
+                      .filter((comment) => (comment.channel || "comment") === "chat")
+                      .map((comment) => (
+                        <Message key={comment.id} comment={comment} people={tagPeople} canDelete={canDelete && !locked} onDelete={() => removeComment(comment.id)} />
+                      ))}
+                  </ul>
+                  <form
+                    className="flex flex-col gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void sendMessage("chat", chatText, chatImage);
+                    }}
+                  >
+                    {chatImage ? (
+                      <div className="flex items-center gap-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={chatImage.url} alt="" className="h-16 w-16 rounded object-cover" />
+                        <button type="button" className="text-xs text-[#ae2e24]" onClick={() => setChatImage(null)}>
+                          Remove image
+                        </button>
                       </div>
-                      <p className="mt-1 whitespace-pre-wrap text-sm">{comment.text}</p>
+                    ) : null}
+                    <div className="flex items-end gap-2">
+                      <div className="min-w-0 flex-1">
+                        <MentionField
+                          value={chatText}
+                          people={tagPeople}
+                          menuRef={mentionOpen}
+                          rows={2}
+                          placeholder="Message the team... Type @ to tag"
+                          onChange={setChatText}
+                          className="w-full resize-none rounded-lg border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
+                        />
+                      </div>
+                      {locked ? null : (
+                        <button
+                          type="button"
+                          aria-label="Attach image"
+                          disabled={uploading}
+                          onClick={() => chatFileRef.current?.click()}
+                          className="rounded-md bg-[#091e420f] px-3 py-2 text-sm font-medium hover:bg-[#091e4224] disabled:opacity-60"
+                        >
+                          {uploading ? "..." : "Image"}
+                        </button>
+                      )}
+                      <button type="submit" className="rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-medium text-white">
+                        Send
+                      </button>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                  </form>
+                  <input
+                    ref={chatFileRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      void uploadChatImage(file);
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <form
+                    className="mb-3 flex gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void sendMessage("comment", commentText, null);
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <MentionField
+                        value={commentText}
+                        people={tagPeople}
+                        menuRef={mentionOpen}
+                        rows={2}
+                        placeholder="Write a comment... Type @ to tag"
+                        onChange={setCommentText}
+                        className="w-full resize-none rounded-lg border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
+                      />
+                    </div>
+                    <button type="submit" className="h-fit rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-medium text-white">
+                      Send
+                    </button>
+                  </form>
+                  <ul className="flex flex-col gap-3">
+                    {comments
+                      .filter((comment) => (comment.channel || "comment") !== "chat")
+                      .map((comment) => (
+                        <Message key={comment.id} comment={comment} people={tagPeople} canDelete={canDelete && !locked} onDelete={() => removeComment(comment.id)} />
+                      ))}
+                  </ul>
+                </>
+              )}
             </section>
             {error ? <p className="mt-4 text-sm text-[#ae2e24]">{error}</p> : null}
           </div>
@@ -303,27 +367,51 @@ export function CardDialog({
             <button type="button" onClick={onClose} className="self-end rounded-md px-2 py-1 text-sm text-[#5e6c84] hover:bg-[#091e420f] md:hidden">
               Close
             </button>
-            <SideBlock title="Members">
-              {people.length === 0 ? <p className="text-xs text-[#5e6c84]">Invite teammates from the workspace page.</p> : null}
-              {people.map((member) => {
-                const selected = card.assigneeIds.includes(member.userId || "");
-                return (
-                  <label key={member.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-[#091e420f]">
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => {
-                        const assigneeIds = selected
-                          ? card.assigneeIds.filter((id) => id !== member.userId)
-                          : [...card.assigneeIds, member.userId as string];
-                        void save({ assigneeIds });
-                      }}
-                    />
-                    <Avatar name={member.name || member.email} photo={member.photo} size={22} />
-                    <span className="truncate">{member.name || member.email}</span>
-                  </label>
-                );
-              })}
+            <SideBlock title="People">
+              {people.length === 0 ? (
+                <p className="text-xs text-[#5e6c84]">Invite someone and wait until they sign in. Then you can tag them here.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {people.map((member) => {
+                    const canTag = member.role === "member";
+                    const selected = card.assigneeIds.includes(member.userId || "");
+                    const label = member.name || member.email;
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        disabled={locked || !canTag}
+                        title={label}
+                        onClick={() => {
+                          if (!canTag) return;
+                          const assigneeIds = selected
+                            ? card.assigneeIds.filter((id) => id !== member.userId)
+                            : [...card.assigneeIds, member.userId as string];
+                          void save({ assigneeIds });
+                        }}
+                        className={cx(
+                          "flex items-center gap-3 rounded-2xl border px-2 py-2 text-left",
+                          selected ? "border-[#0c66e4] bg-[#e9f2ff]" : "border-[#dfe1e6] bg-white",
+                          canTag && !locked ? "hover:border-[#0c66e4]" : "cursor-default",
+                        )}
+                      >
+                        <span className={cx("rounded-full", selected && "ring-2 ring-[#0c66e4] ring-offset-2")}>
+                          <Avatar name={label} photo={member.photo} size={36} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{label}</span>
+                          <span className="block truncate text-xs text-[#5e6c84]">
+                            {selected ? "Tagged on this card" : canTag ? "Click to tag" : member.role}
+                          </span>
+                        </span>
+                        {selected ? (
+                          <span className="grid h-5 w-5 place-items-center rounded-full bg-[#0c66e4] text-xs text-white">✓</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </SideBlock>
             <SideBlock title="Labels">
               <div className="flex flex-col gap-1">
@@ -405,13 +493,30 @@ export function CardDialog({
             />
             {canDelete && !locked ? (
               confirmDelete ? (
-                <button
-                  type="button"
-                  className="rounded-md bg-[#c9372c] px-3 py-2 text-sm font-medium text-white"
-                  onClick={() => onDelete(card.id)}
+                <form
+                  className="flex flex-col gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (deleteName.trim() !== card.title) return;
+                    onDelete(card.id);
+                  }}
                 >
-                  Confirm delete
-                </button>
+                  <p className="text-xs text-[#5e6c84]">Type “{card.title}” to delete. The admin can restore it for 7 days.</p>
+                  <input
+                    value={deleteName}
+                    autoFocus
+                    onChange={(event) => setDeleteName(event.target.value)}
+                    placeholder={card.title}
+                    className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={deleteName.trim() !== card.title}
+                    className="rounded-md bg-[#c9372c] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                  >
+                    Delete card
+                  </button>
+                </form>
               ) : (
                 <button type="button" className="rounded-md px-3 py-2 text-left text-sm text-[#ae2e24] hover:bg-[#ffeceb]" onClick={() => setConfirmDelete(true)}>
                   Delete card
@@ -426,6 +531,76 @@ export function CardDialog({
       </div>
     </div>
   );
+
+  async function sendMessage(channel: "comment" | "chat", raw: string, image: { url: string; fileId: string; name: string } | null) {
+    const text = raw.trim();
+    if (!text && !image) return;
+    const clientMutationId = trackMutation();
+    try {
+      const comment = await api.addComment(card.id, {
+        text,
+        clientMutationId,
+        channel,
+        mentionIds: mentionIdsIn(text, tagPeople),
+        imageUrl: image?.url,
+        imageFileId: image?.fileId,
+        imageName: image?.name,
+      });
+      onComments(comments.some((item) => item.id === comment.id) ? comments : [...comments, comment]);
+      if (channel === "chat") {
+        setChatText("");
+        setChatImage(null);
+      } else {
+        setCommentText("");
+      }
+      setError(null);
+    } catch (err) {
+      forgetMutation(clientMutationId);
+      setError(errorMessage(err));
+    }
+  }
+
+  function removeComment(commentId: string) {
+    const clientMutationId = trackMutation();
+    api
+      .deleteComment(commentId, clientMutationId)
+      .then(() => onComments(comments.filter((item) => item.id !== commentId)))
+      .catch((err: unknown) => {
+        forgetMutation(clientMutationId);
+        setError(errorMessage(err));
+      });
+  }
+
+  async function uploadChatImage(file: File) {
+    if (!file.type.startsWith("image/") && !["png", "jpg", "jpeg", "gif", "webp", "avif", "heic"].includes(file.name.split(".").pop()?.toLowerCase() || "")) {
+      setError("Choose an image.");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setError("Images need to be under 15 MB.");
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    try {
+      const authParams = await api.imageKitAuth();
+      const imagekit = new ImageKit({ publicKey: authParams.publicKey, urlEndpoint: authParams.urlEndpoint });
+      const uploaded = await imagekit.upload({
+        file,
+        fileName: file.name || "image",
+        signature: authParams.signature,
+        token: authParams.token,
+        expire: authParams.expire,
+        folder: `/boards/${card.boardId}/chat`,
+        useUniqueFileName: true,
+      });
+      setChatImage({ url: uploaded.url, fileId: uploaded.fileId, name: uploaded.name || file.name });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function uploadFile(file: File) {
     const kind = fileKind(file);
@@ -472,6 +647,46 @@ export function CardDialog({
       setUploading(false);
     }
   }
+}
+
+function Message({
+  comment,
+  people,
+  canDelete,
+  onDelete,
+}: {
+  comment: Comment;
+  people: ReturnType<typeof mentionPeople>;
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <li className="flex gap-2">
+      <Avatar name={comment.authorName} photo={comment.authorPhoto} />
+      <div className="min-w-0 flex-1 rounded-lg bg-white px-3 py-2">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-semibold">{comment.authorName}</span>
+          <span className="text-xs text-[#5e6c84]">{formatWhen(comment.createdAt)}</span>
+          {canDelete ? (
+            <button type="button" className="ml-auto text-xs text-[#5e6c84] hover:text-[#ae2e24]" onClick={onDelete}>
+              Delete
+            </button>
+          ) : null}
+        </div>
+        {comment.text ? (
+          <p className="mt-1 whitespace-pre-wrap text-sm">
+            <MentionText text={comment.text} people={people} />
+          </p>
+        ) : null}
+        {comment.imageUrl ? (
+          <a href={comment.imageUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={comment.imageUrl} alt={comment.imageName || "Image"} className="max-h-48 rounded-md object-cover" />
+          </a>
+        ) : null}
+      </div>
+    </li>
+  );
 }
 
 function SideBlock({ title, children }: { title: string; children: React.ReactNode }) {
