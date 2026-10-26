@@ -175,6 +175,16 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
         socket?.emit("board:join", boardId, (joinError?: string) => {
           setConnected(!joinError);
           setChannelError(joinError || null);
+          if (joinError || draggingRef.current) return;
+          api
+            .board(boardId)
+            .then((data) => {
+              if (cancelled) return;
+              setDetail(data);
+              setLists(data.lists);
+              loadedRef.current = true;
+            })
+            .catch(() => undefined);
         });
       });
       socket.on("disconnect", () => setConnected(false));

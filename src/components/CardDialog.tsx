@@ -121,6 +121,7 @@ export function CardDialog({
             />
             <p className="mt-1 text-sm text-[#5e6c84]">
               in list <span className="font-medium text-[#172b4d]">{lists.find((list) => list.id === card.listId)?.title}</span>
+              {card.createdAt ? <time dateTime={card.createdAt}> · {formatWhen(card.createdAt)}</time> : null}
             </p>
 
             <section className="mt-5">

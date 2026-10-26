@@ -1,10 +1,12 @@
-import type { Server } from "socket.io";
+import type { Server, Socket } from "socket.io";
 import { isAdminEmail } from "./admin";
 import { requireBoard } from "./access";
 import { mongoReady } from "./db";
 import { verifyFirebaseToken } from "./firebase";
+import { canSeeEveryCard, isAssigned } from "./guards";
 import { HttpError } from "./http";
-import { UserModel } from "./models";
+import { CardModel, ListModel, UserModel } from "./models";
+import { cardJson, listJson } from "./serialize";
 
 export function attachSocket(io: Server): void {
   io.use(async (socket, next) => {
@@ -36,6 +38,7 @@ export function attachSocket(io: Server): void {
       try {
         await requireBoard(socket.data.userId, boardId);
         await socket.join(`board:${boardId}`);
+        await sendBoard(socket, boardId);
         reply?.();
       } catch (error) {
         reply?.(error instanceof Error ? error.message : "Cannot join this board.");
@@ -46,6 +49,28 @@ export function attachSocket(io: Server): void {
       if (typeof boardId === "string") socket.leave(`board:${boardId}`);
     });
   });
+}
+
+async function sendBoard(socket: Socket, boardId: string): Promise<void> {
+  const user = await UserModel.findById(socket.data.userId);
+  if (!user) return;
+  const [lists, retired, allCards] = await Promise.all([
+    ListModel.find({ boardId, deletedAt: null }).sort({ position: 1 }),
+    ListModel.find({ boardId, deletedAt: { $ne: null } }).select("_id"),
+    CardModel.find({ boardId, deletedAt: null }).sort({ position: 1 }),
+  ]);
+  const cards = canSeeEveryCard(user) ? allCards : allCards.filter((card) => isAssigned(card.assigneeIds, String(user._id)));
+  for (const list of retired) socket.emit("list:deleted", { listId: String(list._id) });
+  for (const list of lists) {
+    const id = String(list._id);
+    socket.emit("list:deleted", { listId: id });
+    socket.emit("list:created", {
+      list: listJson(
+        list,
+        cards.filter((card) => String(card.listId) === id).map((card) => cardJson(card)),
+      ),
+    });
+  }
 }
 
 declare module "socket.io" {

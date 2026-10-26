@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "@/components/Providers";
@@ -12,6 +12,14 @@ const geist = Geist({
 export const metadata: Metadata = {
   title: "Boards",
   description: "Team tasks arranged on boards, lists, and cards.",
+  applicationName: "Boards",
+  appleWebApp: { capable: true, title: "Boards", statusBarStyle: "black-translucent" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0079bf",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

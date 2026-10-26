@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { Clock } from "@/components/InstallApp";
 import { cx } from "@/components/ui";
 
 export function BottomNav() {
@@ -38,7 +39,10 @@ export function BottomNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#dfe1e6] bg-white">
-      <ul className="mx-auto flex max-w-3xl">
+      <ul className="mx-auto flex max-w-3xl items-center">
+        <li className="flex w-24 items-center justify-center">
+          <Clock />
+        </li>
         {items.map((item) => (
           <li key={item.href} className="flex-1">
             <Link

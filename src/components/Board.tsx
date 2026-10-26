@@ -27,7 +27,7 @@ import type { Card, List, Membership } from "@shared/types";
 import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
 import { upsertCard } from "@/lib/board-state";
-import { errorMessage, formatDue, isOverdue } from "@/lib/format";
+import { errorMessage, formatDue, formatWhen, isOverdue } from "@/lib/format";
 import { Avatar, Button, cx, Modal, TextInput } from "@/components/ui";
 
 type BoardProps = {
@@ -576,6 +576,7 @@ function CardFace({ card, people, overlay = false }: { card: Card; people: Map<s
         ) : null}
         <h3 className="text-sm leading-5 text-[#172b4d]">{card.title}</h3>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-[#5e6c84]">
+          {card.createdAt ? <time dateTime={card.createdAt}>{formatWhen(card.createdAt)}</time> : null}
           {card.dueDate ? (
             <span className={cx("rounded px-1.5 py-0.5", isOverdue(card.dueDate) ? "bg-[#ffeceb] text-[#ae2e24]" : "bg-[#f1f2f4]")}>
               {formatDue(card.dueDate)}
