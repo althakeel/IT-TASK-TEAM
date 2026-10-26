@@ -43,16 +43,27 @@ export function applyListEvent(lists: List[], event: LiveEvent): List[] {
       return upsertCard(lists, event.card);
     case "card:deleted":
       return lists.map((list) => ({ ...list, cards: list.cards.filter((card) => card.id !== event.cardId) }));
-    case "cards:reordered":
-      return lists.map((list) => ({
+    case "cards:reordered": {
+      const nextById = new Map(event.cards.map((card) => [card.id, card]));
+      const incoming: Card[] = [];
+      const placed = lists.map((list) => ({
         ...list,
-        cards: list.cards
-          .map((card) => {
-            const next = event.cards.find((item) => item.id === card.id);
-            return next ? { ...card, listId: next.listId, position: next.position } : card;
-          })
-          .sort((a, b) => a.position - b.position),
+        cards: list.cards.flatMap((card) => {
+          const next = nextById.get(card.id);
+          if (!next) return [card];
+          const updated = { ...card, listId: next.listId, position: next.position };
+          if (next.listId !== list.id) {
+            incoming.push(updated);
+            return [];
+          }
+          return [updated];
+        }),
       }));
+      return placed.map((list) => ({
+        ...list,
+        cards: [...list.cards, ...incoming.filter((card) => card.listId === list.id)].sort((a, b) => a.position - b.position),
+      }));
+    }
     default:
       return lists;
   }

@@ -5,7 +5,7 @@ import { requireBoard, requireUser } from "../access";
 import { assertAdmin, assertCanViewCard } from "../guards";
 import { asyncHandler, bodyOf, clientMutationId, HttpError, param } from "../http";
 import { assertImageKitUrl, imageKitClient } from "../imagekit";
-import { CardModel, CommentModel, ListModel, MembershipModel, UserModel } from "../models";
+import { CardModel, CommentModel, ListModel, UserModel } from "../models";
 import { notifyUsers } from "../notify";
 import { deletedDate } from "../trash";
 import { cardJson, commentJson, listJson } from "../serialize";
@@ -22,7 +22,7 @@ import {
   parseLabels,
 } from "../validate";
 import { nextCardPosition, nextListPosition, rebalanceCards, rebalanceLists } from "../order";
-import { emitBoard, emitToUsers } from "../realtime";
+import { emitBoard } from "../realtime";
 
 export const contentRouter = Router();
 
@@ -124,7 +124,7 @@ contentRouter.post(
       approval: isAdminEmail(user.email) ? null : "pending",
     });
     const dto = cardJson(card);
-    emitToUsers(assigneeIds.map(String), "card:created", { clientMutationId: clientMutationId(body), card: dto }, true);
+    emitBoard(String(list.boardId), "card:created", { clientMutationId: clientMutationId(body), card: dto });
     if (dto.approval === "pending") {
       const admin = await UserModel.findOne({ email: adminEmail() }).select("_id");
       if (admin) {
@@ -215,16 +215,8 @@ contentRouter.patch(
     if (!fresh) throw new HttpError(404, "Card not found.");
     const dto = cardJson(fresh);
     const afterAssignees = fresh.assigneeIds.map((id) => String(id));
-    const removed = beforeAssignees.filter((id) => !afterAssignees.includes(id));
     const added = afterAssignees.filter((id) => !beforeAssignees.includes(id));
-    if (removed.length > 0) {
-      emitToUsers(removed, "card:deleted", {
-        clientMutationId: clientMutationId(body),
-        cardId: dto.id,
-        listId: dto.listId,
-      });
-    }
-    emitToUsers(afterAssignees, moved ? "card:moved" : "card:updated", { clientMutationId: clientMutationId(body), card: dto }, true);
+    emitBoard(String(fresh.boardId), moved ? "card:moved" : "card:updated", { clientMutationId: clientMutationId(body), card: dto });
     if (reordered) emitBoard(String(fresh.boardId), "cards:reordered", { cards: reordered });
     const boardId = String(fresh.boardId);
     if (added.length > 0) {
@@ -289,22 +281,8 @@ contentRouter.post(
     card.approval = decision;
     await card.save();
     const dto = cardJson(card);
-    const members = await MembershipModel.find({ workspaceId: board.workspaceId, status: "active", userId: { $ne: null } }).select("userId");
-    const memberIds = members.map((row) => String(row.userId));
     const creatorId = String(card.createdBy);
-    if (decision === "approved") {
-      emitToUsers(memberIds, "card:updated", { card: dto }, true);
-    } else {
-      const admin = await UserModel.findOne({ email: adminEmail() }).select("_id");
-      const keep = new Set([creatorId, admin ? String(admin._id) : ""]);
-      emitToUsers(
-        memberIds.filter((id) => !keep.has(id)),
-        "card:deleted",
-        { cardId: dto.id, listId: dto.listId },
-        false,
-      );
-      emitToUsers([creatorId], "card:updated", { card: dto }, true);
-    }
+    emitBoard(String(board._id), "card:updated", { card: dto });
     await notifyUsers({
       recipientIds: [creatorId],
       actorId: String(user._id),
@@ -331,10 +309,9 @@ contentRouter.delete(
       cardId: String(card._id),
       listId: String(card.listId),
     };
-    const recipients = card.assigneeIds.map((id) => String(id));
     card.set("deletedAt", new Date());
     await card.save();
-    emitToUsers(recipients, "card:deleted", payload, true);
+    emitBoard(String(board._id), "card:deleted", payload);
     res.json({ ok: true });
   }),
 );
@@ -353,7 +330,7 @@ contentRouter.post(
     card.attachments.push(parseAttachment(body));
     await card.save();
     const dto = cardJson(card);
-    emitToUsers(dto.assigneeIds, "card:updated", { clientMutationId: clientMutationId(body), card: dto }, true);
+    emitBoard(dto.boardId, "card:updated", { clientMutationId: clientMutationId(body), card: dto });
     await notifyUsers({
       recipientIds: dto.assigneeIds,
       actorId: String(user._id),
@@ -398,7 +375,7 @@ contentRouter.delete(
       // The card no longer points at the file even if ImageKit cleanup fails.
     }
     const dto = cardJson(card);
-    emitToUsers(dto.assigneeIds, "card:updated", { clientMutationId: clientMutationId(bodyOf(req)), card: dto }, true);
+    emitBoard(dto.boardId, "card:updated", { clientMutationId: clientMutationId(bodyOf(req)), card: dto });
     res.json(dto);
   }),
 );
@@ -453,11 +430,11 @@ contentRouter.post(
       );
       await card.save();
       const cardDto = cardJson(card);
-      emitToUsers(cardDto.assigneeIds, "card:updated", { card: cardDto }, true);
+      emitBoard(cardDto.boardId, "card:updated", { card: cardDto });
     }
     const dto = commentJson(comment, user);
     const recipients = card.assigneeIds.map((id) => String(id));
-    emitToUsers(recipients, "comment:created", { clientMutationId: clientMutationId(body), comment: dto }, true);
+    emitBoard(String(card.boardId), "comment:created", { clientMutationId: clientMutationId(body), comment: dto });
     const actorId = String(user._id);
     if (mentioned.length > 0) {
       await notifyUsers({
@@ -497,7 +474,7 @@ contentRouter.delete(
       cardId: String(comment.cardId),
     };
     await comment.deleteOne();
-    emitToUsers(card ? card.assigneeIds.map((id) => String(id)) : [], "comment:deleted", payload, true);
+    emitBoard(String(comment.boardId), "comment:deleted", payload);
     res.json({ ok: true });
   }),
 );

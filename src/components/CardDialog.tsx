@@ -20,6 +20,7 @@ type CardDialogProps = {
   trackMutation: () => string;
   forgetMutation: (id: string) => void;
   onCard: (card: Card) => void;
+  onReviewed?: (card: Card) => void;
   onComments: (comments: Comment[]) => void;
   onClose: () => void;
   onCopied: (card: Card) => void;
@@ -38,6 +39,7 @@ export function CardDialog({
   trackMutation,
   forgetMutation,
   onCard,
+  onReviewed,
   onComments,
   onClose,
   onCopied,
@@ -263,11 +265,11 @@ export function CardDialog({
                     : "Only the member who added it and the admin can see it until it is approved."}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {canReview && !locked ? (
+                  {canReview && !locked && card.approval === "pending" ? (
                     <>
                       <button
                         type="button"
-                        disabled={reviewing || card.approval === "approved"}
+                        disabled={reviewing}
                         onClick={() => void review("approved")}
                         className="rounded-md bg-[#1f845a] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
                       >
@@ -275,13 +277,23 @@ export function CardDialog({
                       </button>
                       <button
                         type="button"
-                        disabled={reviewing || card.approval === "rejected"}
+                        disabled={reviewing}
                         onClick={() => void review("rejected")}
                         className="rounded-md bg-[#c9372c] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
                       >
                         Reject
                       </button>
                     </>
+                  ) : null}
+                  {canReview && !locked && card.approval === "rejected" ? (
+                    <button
+                      type="button"
+                      disabled={reviewing}
+                      onClick={() => void review("approved")}
+                      className="rounded-md bg-[#1f845a] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                    >
+                      Approve
+                    </button>
                   ) : null}
                   <button type="button" onClick={() => setPane("chat")} className="rounded-md bg-[#091e420f] px-3 py-2 text-sm font-medium">
                     Chat
@@ -608,7 +620,9 @@ export function CardDialog({
     setReviewing(true);
     setError(null);
     try {
-      onCard(await api.reviewCard(card.id, decision));
+      const saved = await api.reviewCard(card.id, decision);
+      onCard(saved);
+      onReviewed?.(saved);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

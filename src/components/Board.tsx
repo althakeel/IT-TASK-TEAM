@@ -335,6 +335,7 @@ export function Board({
                 name="title"
                 autoFocus
                 placeholder="List name"
+                onPointerDown={(event) => event.stopPropagation()}
                 className="w-full rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setAddingList(false);
@@ -482,10 +483,12 @@ function ListColumn({
                 setCardTitle("");
               });
             }}
+            onPointerDown={(event) => event.stopPropagation()}
           >
             <textarea
               value={cardTitle}
               autoFocus
+              onPointerDown={(event) => event.stopPropagation()}
               onChange={(event) => setCardTitle(event.target.value)}
               placeholder="Card title"
               rows={2}

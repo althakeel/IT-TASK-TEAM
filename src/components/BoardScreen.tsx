@@ -95,7 +95,7 @@ export function BoardScreen() {
   function matchesView(card: Card) {
     if (view === "approval") return card.approval === "pending" || card.approval === "rejected";
     if (view === "approved") return card.approval === "approved";
-    return !card.approval;
+    return card.approval !== "pending" && card.approval !== "rejected";
   }
   const totalCards = allCards.filter(matchesView).length;
   const shownLists = live.lists
@@ -280,7 +280,7 @@ export function BoardScreen() {
             : "Tasks you add stay here until the admin approves them. Other members cannot see them yet."}
         </p>
       ) : view === "approved" ? (
-        <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved, so other members can see them.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process.</p>
       ) : !isAdmin ? (
         <p className="px-4 pt-3 text-sm text-white/90">You only see tasks you are tagged on. A task you add yourself waits in Approval.</p>
       ) : null}
@@ -320,9 +320,7 @@ export function BoardScreen() {
             setDragging={live.setDragging}
             onOpenCard={live.setOpenCardId}
             onError={setToast}
-            onAdded={(card) => {
-              if (card.approval === "pending") setView("approval");
-            }}
+            onAdded={(card) => setView(card.approval === "pending" ? "approval" : "normal")}
             canDelete={isAdmin}
             locked={locked}
             arrangeLocked={searchFiltering || view !== "normal"}
@@ -599,6 +597,9 @@ export function BoardScreen() {
           trackMutation={live.trackMutation}
           forgetMutation={live.forgetMutation}
           onCard={(card: Card) => live.setLists((current) => upsertCard(current, card))}
+          onReviewed={(card) => {
+            if (card.approval === "approved") setView("normal");
+          }}
           onComments={live.setComments}
           canDelete={isAdmin}
           canReview={isAdmin}
