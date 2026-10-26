@@ -18,6 +18,7 @@ export function HomeScreen() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [boardQuery, setBoardQuery] = useState("");
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace("/login");
@@ -74,6 +75,17 @@ export function HomeScreen() {
           ) : null}
         </div>
         <ErrorText>{error}</ErrorText>
+        {workspaces && workspaces.length > 0 ? (
+          <label className="mb-6 block text-sm font-medium">
+            Find a board
+            <TextInput
+              className="mt-1 max-w-sm"
+              value={boardQuery}
+              onChange={(event) => setBoardQuery(event.target.value)}
+              placeholder="Board name"
+            />
+          </label>
+        ) : null}
         {workspaces && workspaces.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[#dfe1e6] bg-white p-10 text-center">
             {auth.user?.isAdmin ? (
@@ -102,7 +114,9 @@ export function HomeScreen() {
                 </Link>
               </div>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-                {workspace.boards.map((board) => (
+                {workspace.boards
+                  .filter((board) => board.title.toLowerCase().includes(boardQuery.trim().toLowerCase()))
+                  .map((board) => (
                   <Link
                     key={board.id}
                     href={`/b/${board.id}`}

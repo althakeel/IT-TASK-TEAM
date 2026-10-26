@@ -22,6 +22,7 @@ type CardDialogProps = {
   onCard: (card: Card) => void;
   onComments: (comments: Comment[]) => void;
   onClose: () => void;
+  onCopied: (card: Card) => void;
   onDelete: (cardId: string) => void;
   canDelete: boolean;
   locked: boolean;
@@ -38,6 +39,7 @@ export function CardDialog({
   onCard,
   onComments,
   onClose,
+  onCopied,
   onDelete,
   canDelete,
   locked,
@@ -47,6 +49,8 @@ export function CardDialog({
   const title = titleDraft ?? card.title;
   const description = descriptionDraft ?? card.description;
   const [checkText, setCheckText] = useState("");
+  const [copyListId, setCopyListId] = useState(card.listId);
+  const [copying, setCopying] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [chatText, setChatText] = useState("");
   const [chatImage, setChatImage] = useState<{ url: string; fileId: string; name: string } | null>(null);
@@ -68,6 +72,10 @@ export function CardDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    setCopyListId(card.listId);
+  }, [card.id, card.listId]);
 
   async function save(patch: Record<string, unknown>) {
     if (locked) return null;
@@ -470,6 +478,29 @@ export function CardDialog({
               </select>
             </SideBlock>
             {locked ? null : (
+              <SideBlock title="Copy">
+                <select
+                  value={copyListId}
+                  onChange={(event) => setCopyListId(event.target.value)}
+                  className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm"
+                >
+                  {lists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {list.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={copying}
+                  onClick={() => void copyCard()}
+                  className="mt-2 w-full rounded-md bg-[#091e420f] px-3 py-2 text-left text-sm font-medium hover:bg-[#091e4224] disabled:opacity-60"
+                >
+                  {copying ? "Copying..." : "Copy card"}
+                </button>
+              </SideBlock>
+            )}
+            {locked ? null : (
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
@@ -531,6 +562,36 @@ export function CardDialog({
       </div>
     </div>
   );
+
+  async function copyCard() {
+    if (locked || copying) return;
+    setCopying(true);
+    setError(null);
+    const clientMutationId = trackMutation();
+    try {
+      const created = await api.createCard(copyListId, card.title, clientMutationId);
+      const memberIds = new Set(
+        members.filter((member) => member.role === "member" && member.userId).map((member) => member.userId as string),
+      );
+      const assigneeIds = card.assigneeIds.filter((id) => memberIds.has(id));
+      if (memberIds.has(currentUserId) && !assigneeIds.includes(currentUserId)) assigneeIds.push(currentUserId);
+      const saved = await api.updateCard(created.id, {
+        description: card.description,
+        labels: card.labels,
+        checklist: card.checklist,
+        dueDate: card.dueDate,
+        assigneeIds,
+        attachments: card.attachments,
+        clientMutationId: trackMutation(),
+      });
+      onCopied(saved);
+    } catch (err) {
+      forgetMutation(clientMutationId);
+      setError(errorMessage(err));
+    } finally {
+      setCopying(false);
+    }
+  }
 
   async function sendMessage(channel: "comment" | "chat", raw: string, image: { url: string; fileId: string; name: string } | null) {
     const text = raw.trim();

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ImageKit from "imagekit-javascript";
-import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, type Card, type Membership } from "@shared/types";
+import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, LABEL_PRESETS, type Card, type Membership } from "@shared/types";
 import { Board } from "@/components/Board";
 import { BoardScorecard } from "@/components/BoardScorecard";
 import { CardDialog } from "@/components/CardDialog";
@@ -14,7 +14,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { fileKind, upsertCard } from "@/lib/board-state";
 import { boardSurface } from "@/lib/board-style";
-import { errorMessage } from "@/lib/format";
+import { dueWithinDays, errorMessage, isOverdue } from "@/lib/format";
 import { useLiveBoard } from "@/lib/use-live-board";
 
 export function BoardScreen() {
@@ -39,6 +39,10 @@ export function BoardScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [deleteName, setDeleteName] = useState("");
   const [dangerOpen, setDangerOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [personId, setPersonId] = useState("all");
+  const [labelColor, setLabelColor] = useState("all");
+  const [dueFilter, setDueFilter] = useState<"all" | "overdue" | "week" | "none">("all");
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
@@ -82,6 +86,25 @@ export function BoardScreen() {
   const taskCount = live.lists.reduce((sum, list) => sum + list.cards.length, 0);
 
   const title = titleDraft ?? board.title;
+  const needle = query.trim().toLowerCase();
+  const filtering = Boolean(needle) || personId !== "all" || labelColor !== "all" || dueFilter !== "all";
+  const totalCards = live.lists.reduce((sum, list) => sum + list.cards.length, 0);
+  const shownLists = live.lists
+    .map((list) => ({
+      ...list,
+      cards: list.cards.filter((card) => {
+        if (needle && !`${card.title} ${card.description}`.toLowerCase().includes(needle)) return false;
+        if (personId !== "all" && !card.assigneeIds.includes(personId)) return false;
+        if (labelColor !== "all" && !card.labels.some((label) => label.color === labelColor)) return false;
+        if (dueFilter === "overdue") return Boolean(card.dueDate && isOverdue(card.dueDate));
+        if (dueFilter === "week") return Boolean(card.dueDate && dueWithinDays(card.dueDate, 7));
+        if (dueFilter === "none") return !card.dueDate;
+        return true;
+      }),
+    }))
+    .filter((list) => !filtering || list.cards.length > 0);
+  const shownCount = shownLists.reduce((sum, list) => sum + list.cards.length, 0);
+  const tagPeople = members.filter((member) => member.status === "active" && member.userId);
 
   async function saveTitle() {
     const next = title.trim();
@@ -151,6 +174,71 @@ export function BoardScreen() {
           </button>
         </div>
       </header>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 bg-black/20 px-3 py-2 text-sm text-white">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search cards"
+          aria-label="Search cards"
+          className="w-44 rounded-md bg-white px-2 py-1 text-sm text-[#172b4d] outline-none placeholder:text-[#5e6c84]"
+        />
+        <select
+          value={personId}
+          onChange={(event) => setPersonId(event.target.value)}
+          aria-label="Filter by person"
+          className="rounded-md bg-white px-2 py-1 text-sm text-[#172b4d]"
+        >
+          <option value="all">Everyone</option>
+          {tagPeople.map((member) => (
+            <option key={member.userId} value={member.userId || ""}>
+              {member.name || member.email}
+            </option>
+          ))}
+        </select>
+        <select
+          value={labelColor}
+          onChange={(event) => setLabelColor(event.target.value)}
+          aria-label="Filter by label"
+          className="rounded-md bg-white px-2 py-1 text-sm text-[#172b4d]"
+        >
+          <option value="all">All labels</option>
+          {LABEL_PRESETS.map((preset) => (
+            <option key={preset.color} value={preset.color}>
+              {preset.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={dueFilter}
+          onChange={(event) => setDueFilter(event.target.value as "all" | "overdue" | "week" | "none")}
+          aria-label="Filter by due date"
+          className="rounded-md bg-white px-2 py-1 text-sm text-[#172b4d]"
+        >
+          <option value="all">Any due date</option>
+          <option value="overdue">Overdue</option>
+          <option value="week">Due this week</option>
+          <option value="none">No due date</option>
+        </select>
+        {filtering ? (
+          <>
+            <span className="text-xs text-white/80">
+              {shownCount} of {totalCards}
+            </span>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-xs font-medium hover:bg-white/15"
+              onClick={() => {
+                setQuery("");
+                setPersonId("all");
+                setLabelColor("all");
+                setDueFilter("all");
+              }}
+            >
+              Clear
+            </button>
+          </>
+        ) : null}
+      </div>
       {locked ? (
         <p className="mx-3 mt-3 rounded-lg bg-white/95 px-3 py-2 text-sm text-[#172b4d]">
           This board is closed. Tasks stay visible, and changes are paused until it is reopened.
@@ -175,20 +263,25 @@ export function BoardScreen() {
         />
       ) : null}
       <div className="min-h-0 flex-1">
-        <Board
-          boardId={board.id}
-          lists={live.lists}
-          members={members}
-          setLists={live.setLists}
-          getLists={live.getLists}
-          trackMutation={live.trackMutation}
-          forgetMutation={live.forgetMutation}
-          setDragging={live.setDragging}
-          onOpenCard={live.setOpenCardId}
-          onError={setToast}
-          canDelete={isAdmin}
-          locked={locked}
-        />
+        {filtering && shownCount === 0 ? (
+          <div className="m-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">No cards match this search.</div>
+        ) : (
+          <Board
+            boardId={board.id}
+            lists={filtering ? shownLists : live.lists}
+            members={members}
+            setLists={live.setLists}
+            getLists={live.getLists}
+            trackMutation={live.trackMutation}
+            forgetMutation={live.forgetMutation}
+            setDragging={live.setDragging}
+            onOpenCard={live.setOpenCardId}
+            onError={setToast}
+            canDelete={isAdmin}
+            locked={locked}
+            arrangeLocked={filtering}
+          />
+        )}
       </div>
       {shareOpen ? (
         <Modal title="Share this board" onClose={() => setShareOpen(false)}>
@@ -464,6 +557,11 @@ export function BoardScreen() {
           canDelete={isAdmin}
           locked={locked}
           onClose={() => live.setOpenCardId(null)}
+          onCopied={(card) => {
+            live.setLists((current) => upsertCard(current, card));
+            live.setOpenCardId(card.id);
+            setToast("Card copied.");
+          }}
           onDelete={(cardId) => {
             const clientMutationId = live.trackMutation();
             const snapshot = live.getLists();

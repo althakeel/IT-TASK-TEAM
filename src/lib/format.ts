@@ -11,6 +11,16 @@ export function isOverdue(due: string): boolean {
   return date < today;
 }
 
+export function dueWithinDays(due: string, days: number): boolean {
+  const [year, month, day] = due.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(today);
+  end.setDate(end.getDate() + days);
+  return date >= today && date <= end;
+}
+
 export function formatWhen(iso: string): string {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",

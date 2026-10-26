@@ -85,8 +85,8 @@ export const api = {
   invitePreview: (token: string) => request<InvitePreview & { matchesAccount: boolean }>(`/api/invites/${token}`),
   acceptInvite: (token: string) =>
     request<{ workspaceId: string; workspaceName: string }>(`/api/invites/${token}/accept`, "POST", {}),
-  createBoard: (workspaceId: string, title: string, background: string) =>
-    request<BoardSummary>(`/api/workspaces/${workspaceId}/boards`, "POST", { title, background }),
+  createBoard: (workspaceId: string, title: string, background: string, backgroundImage = "") =>
+    request<BoardSummary>(`/api/workspaces/${workspaceId}/boards`, "POST", { title, background, backgroundImage }),
   board: (id: string) => request<BoardDetail>(`/api/boards/${id}`),
   updateBoard: (id: string, patch: { title?: string; background?: string; backgroundImage?: string; description?: string; closed?: boolean }) =>
     request<BoardSummary>(`/api/boards/${id}`, "PATCH", patch),

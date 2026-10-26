@@ -20,10 +20,12 @@ boardRouter.post(
     const body = bodyOf(req);
     const title = cleanName(body.title, "Board title", 120);
     const background = body.background === undefined ? BOARD_BACKGROUNDS[0].color : assertBackground(body.background);
+    const backgroundImage = body.backgroundImage === undefined ? "" : assertBoardBackdrop(body.backgroundImage);
     const board = await BoardModel.create({
       workspaceId,
       title,
       background,
+      backgroundImage,
       createdBy: user._id,
     });
     res.status(201).json(boardJson(board));

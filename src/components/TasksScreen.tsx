@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { MentionedTask } from "@shared/types";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { errorMessage, formatDue, formatWhen, isOverdue } from "@/lib/format";
+import { dueWithinDays, errorMessage, formatDue, formatWhen, isOverdue } from "@/lib/format";
 import { AppHeader, ErrorText, FullScreenSpinner, cx } from "@/components/ui";
 
 export function TasksScreen() {
@@ -53,23 +53,43 @@ export function TasksScreen() {
             </Link>
           </div>
         ) : null}
-        <ul className="mt-6 flex flex-col gap-2">
-          {tasks?.map((task) => (
-            <li key={task.id}>
-              <Link href={`/b/${task.boardId}?card=${task.id}`} className="block rounded-xl bg-white p-4 shadow-sm hover:bg-[#f7f8f9]">
-                <p className="font-semibold">{task.title}</p>
-                <p className="mt-1 text-sm text-[#5e6c84]">
-                  {task.boardTitle} · {task.listTitle}
-                </p>
-                <p className={cx("mt-2 text-xs", task.dueDate && isOverdue(task.dueDate) ? "text-[#ae2e24]" : "text-[#5e6c84]")}>
-                  {task.dueDate ? `Due ${formatDue(task.dueDate)} · ` : ""}
-                  Updated {formatWhen(task.updatedAt)}
-                </p>
-              </Link>
-            </li>
+        <div className="mt-6 flex flex-col gap-6">
+          {groupTasks(tasks || []).map((group) => (
+            <section key={group.title}>
+              <h2 className="text-sm font-semibold text-[#44546f]">
+                {group.title}
+                <span className="ml-2 font-medium text-[#5e6c84]">{group.tasks.length}</span>
+              </h2>
+              <ul className="mt-2 flex flex-col gap-2">
+                {group.tasks.map((task) => (
+                  <li key={task.id}>
+                    <Link href={`/b/${task.boardId}?card=${task.id}`} className="block rounded-xl bg-white p-4 shadow-sm hover:bg-[#f7f8f9]">
+                      <p className="font-semibold">{task.title}</p>
+                      <p className="mt-1 text-sm text-[#5e6c84]">
+                        {task.boardTitle} · {task.listTitle}
+                      </p>
+                      <p className={cx("mt-2 text-xs", task.dueDate && isOverdue(task.dueDate) ? "text-[#ae2e24]" : "text-[#5e6c84]")}>
+                        {task.dueDate ? `Due ${formatDue(task.dueDate)} · ` : "No due date · "}
+                        Updated {formatWhen(task.updatedAt)}
+                      </p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       </main>
     </div>
   );
+}
+
+function groupTasks(tasks: MentionedTask[]) {
+  const buckets = [
+    { title: "Overdue", tasks: tasks.filter((task) => task.dueDate && isOverdue(task.dueDate)) },
+    { title: "Due this week", tasks: tasks.filter((task) => task.dueDate && dueWithinDays(task.dueDate, 7)) },
+    { title: "Later", tasks: tasks.filter((task) => task.dueDate && !isOverdue(task.dueDate) && !dueWithinDays(task.dueDate, 7)) },
+    { title: "No due date", tasks: tasks.filter((task) => !task.dueDate) },
+  ];
+  return buckets.filter((group) => group.tasks.length > 0);
 }

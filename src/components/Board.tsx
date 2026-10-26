@@ -43,6 +43,7 @@ type BoardProps = {
   onError: (message: string) => void;
   canDelete: boolean;
   locked: boolean;
+  arrangeLocked?: boolean;
 };
 
 export function Board({
@@ -58,6 +59,7 @@ export function Board({
   onError,
   canDelete,
   locked,
+  arrangeLocked = false,
 }: BoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<"card" | "list" | null>(null);
@@ -71,7 +73,7 @@ export function Board({
   const people = new Map(members.filter((member) => member.userId).map((member) => [member.userId as string, member]));
 
   function onDragStart(event: DragStartEvent) {
-    if (locked) return;
+    if (locked || arrangeLocked) return;
     snapshotRef.current = structuredClone(getLists());
     suppressClick.current = true;
     setDragging(true);
@@ -307,6 +309,7 @@ export function Board({
               onDelete={canDelete ? () => void removeList(list.id) : null}
               onAddCard={(title) => addCard(list.id, title)}
               locked={locked}
+              arrangeLocked={arrangeLocked}
             />
           ))}
         </SortableContext>
@@ -380,6 +383,7 @@ function ListColumn({
   onDelete,
   onAddCard,
   locked,
+  arrangeLocked,
 }: {
   list: List;
   people: Map<string, Membership>;
@@ -389,11 +393,12 @@ function ListColumn({
   onDelete: (() => void) | null;
   onAddCard: (title: string) => Promise<void>;
   locked: boolean;
+  arrangeLocked: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: list.id,
     data: { type: "list", listId: list.id },
-    disabled: listDragDisabled || locked,
+    disabled: listDragDisabled || locked || arrangeLocked,
   });
   const { setNodeRef: setListDropRef } = useDroppable({
     id: `container-${list.id}`,
@@ -456,7 +461,7 @@ function ListColumn({
         <SortableContext items={list.cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
             {list.cards.map((card) => (
-              <SortableCard key={card.id} card={card} people={people} locked={locked} onOpen={() => onOpenCard(card.id)} />
+              <SortableCard key={card.id} card={card} people={people} locked={locked || arrangeLocked} onOpen={() => onOpenCard(card.id)} />
             ))}
           </div>
         </SortableContext>

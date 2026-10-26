@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { BOARD_BACKGROUNDS, type WorkspaceDetail } from "@shared/types";
+import ImageKit from "imagekit-javascript";
+import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, type WorkspaceDetail } from "@shared/types";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { fileKind } from "@/lib/board-state";
 import { errorMessage } from "@/lib/format";
 import { AppHeader, Avatar, Button, ErrorText, FullScreenSpinner, Modal, TextInput, Toast } from "@/components/ui";
 import { boardSurface } from "@/lib/board-style";
@@ -27,6 +29,13 @@ export function WorkspaceScreen() {
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteName, setDeleteName] = useState("");
+  const [gradient, setGradient] = useState("");
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState("");
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const coverInput = useRef<HTMLInputElement>(null);
+  const tileInput = useRef<HTMLInputElement>(null);
+  const tileTarget = useRef<string | null>(null);
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace("/login");
@@ -59,6 +68,38 @@ export function WorkspaceScreen() {
   const canAdmin = detail?.role === "owner" || detail?.role === "admin";
   const isOwner = detail?.role === "owner";
   const people = detail?.members ?? [];
+
+  function resetCover() {
+    setCoverFile(null);
+    setCoverPreview((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+    setGradient("");
+  }
+
+  async function uploadCover(boardId: string, file: File) {
+    if (fileKind(file) !== "image") {
+      setToast("Choose an image.");
+      return null;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setToast("Images need to be under 15 MB.");
+      return null;
+    }
+    const authParams = await api.imageKitAuth();
+    const imagekit = new ImageKit({ publicKey: authParams.publicKey, urlEndpoint: authParams.urlEndpoint });
+    const uploaded = await imagekit.upload({
+      file,
+      fileName: file.name || "background",
+      signature: authParams.signature,
+      token: authParams.token,
+      expire: authParams.expire,
+      folder: `/boards/${boardId}/background`,
+      useUniqueFileName: true,
+    });
+    return api.updateBoard(boardId, { backgroundImage: uploaded.url });
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f7f8fa] pb-16">
@@ -127,16 +168,50 @@ export function WorkspaceScreen() {
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
             {detail?.boards.map((board) => (
-              <Link
-                key={board.id}
-                href={`/b/${board.id}`}
-                className="flex h-36 flex-col justify-end rounded-2xl bg-cover bg-center p-4 text-lg font-semibold text-white shadow-md"
-                style={boardSurface(board)}
-              >
-                {board.title}
-                {board.closed ? <span className="mt-1 text-xs font-medium text-white/80">Closed</span> : null}
-              </Link>
+              <div key={board.id} className="relative">
+                <Link
+                  href={`/b/${board.id}`}
+                  className="flex h-36 flex-col justify-end rounded-2xl bg-cover bg-center p-4 text-lg font-semibold text-white shadow-md"
+                  style={boardSurface(board)}
+                >
+                  {board.title}
+                  {board.closed ? <span className="mt-1 text-xs font-medium text-white/80">Closed</span> : null}
+                </Link>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="absolute right-3 top-3 rounded-full bg-[#172b4d]/85 px-2.5 py-1 text-xs font-semibold text-white"
+                    disabled={uploadingId === board.id}
+                    onClick={() => {
+                      tileTarget.current = board.id;
+                      tileInput.current?.click();
+                    }}
+                  >
+                    {uploadingId === board.id ? "Uploading..." : board.backgroundImage.startsWith("http") ? "Change image" : "Add image"}
+                  </button>
+                ) : null}
+              </div>
             ))}
+            <input
+              ref={tileInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                const boardId = tileTarget.current;
+                event.target.value = "";
+                if (!file || !boardId || !detail) return;
+                setUploadingId(boardId);
+                uploadCover(boardId, file)
+                  .then((saved) => {
+                    if (!saved) return;
+                    setDetail({ ...detail, boards: detail.boards.map((item) => (item.id === saved.id ? saved : item)) });
+                  })
+                  .catch((err: unknown) => setToast(errorMessage(err)))
+                  .finally(() => setUploadingId(null));
+              }}
+            />
             {isAdmin ? (
               <button
                 type="button"
@@ -268,7 +343,13 @@ export function WorkspaceScreen() {
         </section>
       </main>
       {creating ? (
-        <Modal title="New board" onClose={() => setCreating(false)}>
+        <Modal
+          title="New board"
+          onClose={() => {
+            resetCover();
+            setCreating(false);
+          }}
+        >
           <form
             className="flex flex-col gap-3"
             onSubmit={(event) => {
@@ -276,11 +357,23 @@ export function WorkspaceScreen() {
               const title = boardTitle.trim();
               if (!title || !detail) return;
               setBusy(true);
+              const backdrop = gradient && !coverFile ? gradient : "";
               api
-                .createBoard(detail.id, title, background)
+                .createBoard(detail.id, title, background, backdrop)
+                .then(async (board) => {
+                  if (!coverFile) return board;
+                  try {
+                    const saved = await uploadCover(board.id, coverFile);
+                    return saved || board;
+                  } catch (err) {
+                    setToast(errorMessage(err));
+                    return board;
+                  }
+                })
                 .then((board) => {
                   setDetail({ ...detail, boards: [board, ...detail.boards] });
                   setBoardTitle("");
+                  resetCover();
                   setCreating(false);
                 })
                 .catch((err: unknown) => setToast(errorMessage(err)))
@@ -288,20 +381,95 @@ export function WorkspaceScreen() {
             }}
           >
             <TextInput value={boardTitle} onChange={(event) => setBoardTitle(event.target.value)} placeholder="Board title" autoFocus required />
+            <p className="text-sm font-medium">Color</p>
             <div className="flex flex-wrap gap-2">
               {BOARD_BACKGROUNDS.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   aria-label={item.name}
-                  onClick={() => setBackground(item.color)}
+                  onClick={() => {
+                    setBackground(item.color);
+                    setGradient("");
+                  }}
                   className="h-8 w-12 rounded-md"
-                  style={{ backgroundColor: item.color, outline: background === item.color ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
+                  style={{ backgroundColor: item.color, outline: !gradient && !coverPreview && background === item.color ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
                 />
               ))}
             </div>
+            <p className="text-sm font-medium">Gradient</p>
+            <div className="flex flex-wrap gap-2">
+              {BOARD_GRADIENTS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-label={item.name}
+                  onClick={() => {
+                    setGradient(item.value);
+                    setCoverFile(null);
+                    setCoverPreview((current) => {
+                      if (current) URL.revokeObjectURL(current);
+                      return "";
+                    });
+                  }}
+                  className="h-8 w-14 rounded-md"
+                  style={{ backgroundImage: item.value, outline: gradient === item.value && !coverPreview ? "2px solid #172b4d" : undefined, outlineOffset: 2 }}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="quiet" onClick={() => coverInput.current?.click()}>
+                {coverFile ? "Change image" : "Add image"}
+              </Button>
+              {coverPreview ? (
+                <button
+                  type="button"
+                  className="text-sm text-[#ae2e24]"
+                  onClick={() => {
+                    setCoverFile(null);
+                    setCoverPreview((current) => {
+                      if (current) URL.revokeObjectURL(current);
+                      return "";
+                    });
+                  }}
+                >
+                  Remove image
+                </button>
+              ) : null}
+            </div>
+            <input
+              ref={coverInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                if (fileKind(file) !== "image") {
+                  setToast("Choose an image.");
+                  return;
+                }
+                if (file.size > 15 * 1024 * 1024) {
+                  setToast("Images need to be under 15 MB.");
+                  return;
+                }
+                setCoverFile(file);
+                setGradient("");
+                setCoverPreview((current) => {
+                  if (current) URL.revokeObjectURL(current);
+                  return URL.createObjectURL(file);
+                });
+              }}
+            />
+            {coverPreview || gradient ? (
+              <div
+                className="h-24 rounded-xl bg-cover bg-center"
+                style={boardSurface({ background, backgroundImage: coverPreview || gradient })}
+              />
+            ) : null}
             <Button type="submit" disabled={busy}>
-              Create board
+              {busy ? "Creating..." : "Create board"}
             </Button>
           </form>
         </Modal>
