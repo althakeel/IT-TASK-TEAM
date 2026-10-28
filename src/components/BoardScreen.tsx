@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ImageKit from "imagekit-javascript";
 import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, LABEL_PRESETS, type Card, type Membership } from "@shared/types";
 import { Board } from "@/components/Board";
+import { BoardViews, ViewMenu, type BoardLayout } from "@/components/BoardViews";
 import { BoardScorecard } from "@/components/BoardScorecard";
 import { CardDialog } from "@/components/CardDialog";
 import { NotificationBell } from "@/components/Notifications";
@@ -44,6 +45,7 @@ export function BoardScreen() {
   const [labelColor, setLabelColor] = useState("all");
   const [dueFilter, setDueFilter] = useState<"all" | "overdue" | "week" | "none">("all");
   const [view, setView] = useState<"approval" | "approved" | "normal">("normal");
+  const [layout, setLayout] = useState<BoardLayout>("board");
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
@@ -83,6 +85,7 @@ export function BoardScreen() {
   const { board, role, members } = live.detail;
   const openCard = live.lists.flatMap((list) => list.cards).find((card) => card.id === live.openCardId);
   const isAdmin = auth.user.isAdmin;
+  const canReview = isAdmin || role === "owner" || role === "admin";
   const locked = Boolean(board.closed);
   const taskCount = live.lists.reduce((sum, list) => sum + list.cards.length, 0);
 
@@ -93,6 +96,7 @@ export function BoardScreen() {
   const approvalCount = allCards.filter((card) => card.approval === "pending").length;
   const approvedCount = allCards.filter((card) => card.approval === "approved").length;
   function matchesView(card: Card) {
+    if (!canReview) return true;
     if (view === "approval") return card.approval === "pending" || card.approval === "rejected";
     if (view === "approved") return card.approval === "approved";
     return card.approval !== "pending" && card.approval !== "rejected";
@@ -185,25 +189,28 @@ export function BoardScreen() {
         </div>
       </header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 bg-black/20 px-3 py-2 text-sm text-white">
-        <div className="flex rounded-md bg-black/20 p-0.5">
-          {(
-            [
-              ["approval", "Approval", approvalCount],
-              ["approved", "Approved", approvedCount],
-              ["normal", "Normal process", null],
-            ] as const
-          ).map(([id, label, count]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setView(id)}
-              className={`rounded px-3 py-1 text-sm font-medium ${view === id ? "bg-white text-[#172b4d]" : "text-white hover:bg-white/15"}`}
-            >
-              {label}
-              {count ? <span className="ml-1.5 rounded-full bg-[#e2b203] px-1.5 text-xs font-semibold text-[#172b4d]">{count}</span> : null}
-            </button>
-          ))}
-        </div>
+        <ViewMenu layout={layout} onChange={setLayout} />
+        {canReview ? (
+          <div className="flex rounded-md bg-black/20 p-0.5">
+            {(
+              [
+                ["approval", "Approval", approvalCount],
+                ["approved", "Approved", approvedCount],
+                ["normal", "Normal process", null],
+              ] as const
+            ).map(([id, label, count]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setView(id)}
+                className={`rounded px-3 py-1 text-sm font-medium ${view === id ? "bg-white text-[#172b4d]" : "text-white hover:bg-white/15"}`}
+              >
+                {label}
+                {count ? <span className="ml-1.5 rounded-full bg-[#e2b203] px-1.5 text-xs font-semibold text-[#172b4d]">{count}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -281,8 +288,8 @@ export function BoardScreen() {
         </p>
       ) : view === "approved" ? (
         <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process.</p>
-      ) : !isAdmin ? (
-        <p className="px-4 pt-3 text-sm text-white/90">You only see tasks you are tagged on. A task you add yourself waits in Approval.</p>
+      ) : !canReview ? (
+        <p className="px-4 pt-3 text-sm text-white/90">Add a task here as usual. It shows a Request for approval badge until the owner or admin approves it.</p>
       ) : null}
       {!isAdmin && taskCount === 0 ? (
         <div className="mx-3 mt-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
@@ -300,7 +307,9 @@ export function BoardScreen() {
         />
       ) : null}
       <div className="min-h-0 flex-1">
-        {shownCount === 0 && (searchFiltering || view !== "normal") ? (
+        {layout !== "board" ? (
+          <BoardViews layout={layout} lists={shownLists} members={members} onOpen={live.setOpenCardId} />
+        ) : shownCount === 0 && (searchFiltering || view !== "normal") ? (
           <div className="m-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
             {searchFiltering
               ? "No cards match this search."
@@ -320,7 +329,9 @@ export function BoardScreen() {
             setDragging={live.setDragging}
             onOpenCard={live.setOpenCardId}
             onError={setToast}
-            onAdded={(card) => setView(card.approval === "pending" ? "approval" : "normal")}
+            onAdded={(card) => {
+              if (canReview && card.approval === "pending") setView("approval");
+            }}
             canDelete={isAdmin}
             locked={locked}
             arrangeLocked={searchFiltering || view !== "normal"}
@@ -602,7 +613,7 @@ export function BoardScreen() {
           }}
           onComments={live.setComments}
           canDelete={isAdmin}
-          canReview={isAdmin}
+          canReview={canReview}
           locked={locked}
           onClose={() => live.setOpenCardId(null)}
           onCopied={(card) => {

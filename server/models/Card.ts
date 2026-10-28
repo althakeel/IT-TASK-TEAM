@@ -44,6 +44,7 @@ const cardSchema = new Schema(
     attachments: { type: [attachmentSchema], default: [] },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     approval: { type: String, enum: ["pending", "approved", "rejected", null], default: null },
+    location: { type: String, default: "" },
     deletedAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false },

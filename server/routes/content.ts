@@ -162,6 +162,7 @@ contentRouter.patch(
     if (body.title !== undefined) card.title = cleanName(body.title, "Card title", 200);
     if (body.description !== undefined) card.description = optionalText(body.description, 20000) ?? "";
     if (body.dueDate !== undefined) card.set("dueDate", parseDueDate(body.dueDate));
+    if (body.location !== undefined) card.location = optionalText(body.location, 200) ?? "";
     if (body.labels !== undefined) card.set("labels", parseLabels(body.labels));
     if (body.checklist !== undefined) card.set("checklist", parseChecklist(body.checklist));
     if (body.assigneeIds !== undefined) {
@@ -199,6 +200,7 @@ contentRouter.patch(
       body.title === undefined &&
       body.description === undefined &&
       body.dueDate === undefined &&
+      body.location === undefined &&
       body.labels === undefined &&
       body.checklist === undefined &&
       body.assigneeIds === undefined &&

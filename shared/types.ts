@@ -138,6 +138,7 @@ export type Card = {
   createdBy: string;
   createdAt: string;
   approval: "pending" | "approved" | "rejected" | null;
+  location: string;
 };
 
 export type List = {

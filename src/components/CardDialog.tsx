@@ -254,15 +254,17 @@ export function CardDialog({
               </form>
             </section>
 
-            {card.approval ? (
+            {card.approval && (canReview || card.approval !== "approved") ? (
               <section className="mt-5 rounded-lg border border-[#dfe1e6] bg-white p-3">
                 <p className="text-sm font-semibold">
-                  {card.approval === "pending" ? "Waiting for approval" : card.approval === "approved" ? "Approved" : "Rejected"}
+                  {card.approval === "pending" ? "Request for approval" : card.approval === "approved" ? "Approved" : "Rejected"}
                 </p>
                 <p className="mt-1 text-sm text-[#5e6c84]">
                   {card.approval === "approved"
                     ? "Other members can see this task."
-                    : "Only the member who added it and the admin can see it until it is approved."}
+                    : card.approval === "pending"
+                      ? "This stays on your board. Others cannot see it until the owner or admin approves it."
+                      : "The owner or admin rejected this. Others cannot see it."}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {canReview && !locked && card.approval === "pending" ? (
@@ -496,6 +498,18 @@ export function CardDialog({
                   );
                 })}
               </div>
+            </SideBlock>
+            <SideBlock title="Place">
+              <input
+                key={`${card.id}:${card.location}`}
+                defaultValue={card.location}
+                placeholder="City or address"
+                onBlur={(event) => {
+                  const next = event.target.value.trim();
+                  if (next !== card.location) void save({ location: next });
+                }}
+                className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
+              />
             </SideBlock>
             <SideBlock title="Due date">
               <input
