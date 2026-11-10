@@ -24,7 +24,6 @@ export function canViewCard(
   if (canSeeEveryCard(user)) return true;
   const approval = card.approval || null;
   if (approval === "pending" || approval === "rejected") return String(card.createdBy || "") === String(user._id);
-  if (approval === "approved") return true;
   return isAssigned(card.assigneeIds || [], String(user._id));
 }
 

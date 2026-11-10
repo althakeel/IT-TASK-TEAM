@@ -46,6 +46,7 @@ export function BoardScreen() {
   const [dueFilter, setDueFilter] = useState<"all" | "overdue" | "week" | "none">("all");
   const [view, setView] = useState<"approval" | "approved" | "normal">("normal");
   const [layout, setLayout] = useState<BoardLayout>("board");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
@@ -155,6 +156,21 @@ export function BoardScreen() {
           <span className={`h-2 w-2 rounded-full ${live.connected ? "bg-[#61bd4f]" : "bg-white/50"}`} />
           {live.connected ? "Live" : "Connecting"}
         </span>
+        <button
+          type="button"
+          disabled={refreshing}
+          onClick={() => {
+            setRefreshing(true);
+            void live
+              .refresh()
+              .then(() => setToast("Board refreshed."))
+              .catch((error) => setToast(errorMessage(error)))
+              .finally(() => setRefreshing(false));
+          }}
+          className="rounded-md bg-white/15 px-2 py-1 text-sm hover:bg-white/25 disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex -space-x-1">
             {members
@@ -287,9 +303,9 @@ export function BoardScreen() {
             : "Tasks you add stay here until the admin approves them. Other members cannot see them yet."}
         </p>
       ) : view === "approved" ? (
-        <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process for the people tagged on them.</p>
       ) : !canReview ? (
-        <p className="px-4 pt-3 text-sm text-white/90">Add a task here as usual. It shows a Request for approval badge until the owner or admin approves it.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">You only see your tasks. Add a card as usual. It shows Request for approval until the owner or admin approves it.</p>
       ) : null}
       {!isAdmin && taskCount === 0 ? (
         <div className="mx-3 mt-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">

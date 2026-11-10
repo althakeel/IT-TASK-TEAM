@@ -289,7 +289,7 @@ contentRouter.post(
       recipientIds: [creatorId],
       actorId: String(user._id),
       title: decision === "approved" ? "Task approved" : "Task rejected",
-      body: decision === "approved" ? `“${dto.title}” is approved. Other members can see it.` : `“${dto.title}” was rejected. Other members cannot see it.`,
+      body: decision === "approved" ? `“${dto.title}” is approved.` : `“${dto.title}” was rejected. Other members cannot see it.`,
       boardId: dto.boardId,
       cardId: dto.id,
     });

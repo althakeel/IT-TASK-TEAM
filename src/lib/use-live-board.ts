@@ -44,7 +44,6 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
       const viewer = viewerRef.current;
       if (!viewer.admin && (event.type === "card:created" || event.type === "card:updated" || event.type === "card:moved")) {
         const visible =
-          event.card.approval === "approved" ||
           event.card.createdBy === viewer.id ||
           (event.card.approval !== "pending" && event.card.approval !== "rejected" && event.card.assigneeIds.includes(viewer.id));
         if (!visible) {
@@ -114,6 +113,17 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
   }, [updateBoard]);
 
   const getLists = useCallback(() => listsRef.current, []);
+
+  const refresh = useCallback(async () => {
+    if (!enabled) return;
+    const data = await api.board(boardId);
+    setDetail(data);
+    setLists(data.lists);
+    loadedRef.current = true;
+    setError(null);
+    setLoading(false);
+    flush();
+  }, [boardId, enabled, flush, setLists]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -238,5 +248,6 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
     trackMutation,
     forgetMutation,
     setDragging,
+    refresh,
   };
 }
