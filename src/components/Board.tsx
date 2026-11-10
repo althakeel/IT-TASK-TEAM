@@ -22,7 +22,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Card, List, Membership } from "@shared/types";
 import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
@@ -66,8 +66,11 @@ export function Board({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<"card" | "list" | null>(null);
   const [addingList, setAddingList] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const snapshotRef = useRef<List[] | null>(null);
   const suppressClick = useRef(false);
+  const boardScrollRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -289,6 +292,32 @@ export function Board({
   const activeCard = activeId ? lists.flatMap((list) => list.cards).find((card) => card.id === activeId) : undefined;
   const activeList = activeId ? lists.find((list) => list.id === activeId) : undefined;
 
+  function updateScrollButtons() {
+    const node = boardScrollRef.current;
+    if (!node) return;
+    setCanScrollLeft(node.scrollLeft > 4);
+    setCanScrollRight(node.scrollLeft + node.clientWidth < node.scrollWidth - 4);
+  }
+
+  function scrollBoard(direction: "left" | "right") {
+    const node = boardScrollRef.current;
+    if (!node) return;
+    node.scrollBy({ left: direction === "left" ? -280 : 280, behavior: "smooth" });
+  }
+
+  useEffect(() => {
+    updateScrollButtons();
+    const node = boardScrollRef.current;
+    if (!node) return;
+    const onScroll = () => updateScrollButtons();
+    node.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      node.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [lists.length]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -298,70 +327,92 @@ export function Board({
       onDragEnd={(event) => void onDragEnd(event)}
       onDragCancel={onDragCancel}
     >
-      <div className="board-scroll flex h-full items-start gap-3 overflow-x-auto px-3 pt-3 pb-4">
-        <SortableContext items={lists.map((list) => list.id)} strategy={horizontalListSortingStrategy}>
-          {lists.map((list) => (
-            <ListColumn
-              key={list.id}
-              list={list}
-              people={people}
-              listDragDisabled={activeType === "card"}
-              onOpenCard={(cardId) => {
-                if (suppressClick.current) return;
-                onOpenCard(cardId);
-              }}
-              onRename={(title) => void renameList(list.id, title)}
-              onDelete={canDelete ? () => void removeList(list.id) : null}
-              onAddCard={(title) => addCard(list.id, title)}
-              locked={locked}
-              arrangeLocked={arrangeLocked}
-            />
-          ))}
-        </SortableContext>
-        {locked ? null : (
-        <div className="w-[272px] shrink-0">
-          {addingList ? (
-            <form
-              className="rounded-xl bg-[#f1f2f4] p-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const data = new FormData(event.currentTarget);
-                const title = String(data.get("title") || "").trim();
-                if (!title) return;
-                void addList(title);
-                setAddingList(false);
-              }}
-            >
-              <input
-                name="title"
-                autoFocus
-                placeholder="List name"
-                onPointerDown={(event) => event.stopPropagation()}
-                className="w-full rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setAddingList(false);
+      <div className="flex h-full min-h-0 flex-col">
+        <div ref={boardScrollRef} className="board-scroll flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-3 pt-3 pb-2">
+          <SortableContext items={lists.map((list) => list.id)} strategy={horizontalListSortingStrategy}>
+            {lists.map((list) => (
+              <ListColumn
+                key={list.id}
+                list={list}
+                people={people}
+                listDragDisabled={activeType === "card"}
+                onOpenCard={(cardId) => {
+                  if (suppressClick.current) return;
+                  onOpenCard(cardId);
                 }}
+                onRename={(title) => void renameList(list.id, title)}
+                onDelete={canDelete ? () => void removeList(list.id) : null}
+                onAddCard={(title) => addCard(list.id, title)}
+                locked={locked}
+                arrangeLocked={arrangeLocked}
               />
-              <div className="mt-2 flex gap-2">
-                <button type="submit" className="rounded-md bg-[#0c66e4] px-3 py-1.5 text-sm font-medium text-white">
-                  Add list
-                </button>
-                <button type="button" onClick={() => setAddingList(false)} className="rounded-md px-2 text-sm text-[#44546f]">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setAddingList(true)}
-              className="w-full rounded-xl bg-white/25 px-3 py-2 text-left text-sm font-medium text-white hover:bg-white/35"
-            >
-              + Add a list
-            </button>
+            ))}
+          </SortableContext>
+          {locked ? null : (
+          <div className="w-[272px] shrink-0">
+            {addingList ? (
+              <form
+                className="rounded-xl bg-[#f1f2f4] p-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const data = new FormData(event.currentTarget);
+                  const title = String(data.get("title") || "").trim();
+                  if (!title) return;
+                  void addList(title);
+                  setAddingList(false);
+                }}
+              >
+                <input
+                  name="title"
+                  autoFocus
+                  placeholder="List name"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="w-full rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setAddingList(false);
+                  }}
+                />
+                <div className="mt-2 flex gap-2">
+                  <button type="submit" className="rounded-md bg-[#0c66e4] px-3 py-1.5 text-sm font-medium text-white">
+                    Add list
+                  </button>
+                  <button type="button" onClick={() => setAddingList(false)} className="rounded-md px-2 text-sm text-[#44546f]">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAddingList(true)}
+                className="w-full rounded-xl bg-white/25 px-3 py-2 text-left text-sm font-medium text-white hover:bg-white/35"
+              >
+                + Add a list
+              </button>
+            )}
+          </div>
           )}
         </div>
-        )}
+        <div className="flex shrink-0 items-center justify-center gap-2 bg-black/20 px-3 py-2">
+          <button
+            type="button"
+            aria-label="Scroll left"
+            disabled={!canScrollLeft}
+            onClick={() => scrollBoard("left")}
+            className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-[#172b4d] disabled:opacity-40"
+          >
+            ← Scroll left
+          </button>
+          <button
+            type="button"
+            aria-label="Scroll right"
+            disabled={!canScrollRight}
+            onClick={() => scrollBoard("right")}
+            className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-[#172b4d] disabled:opacity-40"
+          >
+            Scroll right →
+          </button>
+        </div>
       </div>
       <DragOverlay>
         {activeCard ? <CardFace card={activeCard} people={people} overlay /> : null}
