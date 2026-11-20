@@ -1,8 +1,9 @@
 "use client";
 
-import type { Card, List, Membership } from "@shared/types";
+import { useMemo, useState } from "react";
+import type { Card, List, Membership, TimeLog } from "@shared/types";
 import { Avatar, cx } from "@/components/ui";
-import { formatDue, isOverdue } from "@/lib/format";
+import { formatDue, formatMinutes, isOverdue } from "@/lib/format";
 
 type Status = "on-time" | "late" | "overdue" | "open";
 
@@ -59,6 +60,27 @@ function taskStatus(card: Card, listTitle: string): Status {
   return "open";
 }
 
+function todayKey(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function logDayKey(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function hoursToMinutes(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return Math.round(9.5 * 60);
+  return Math.round(parsed * 60);
+}
+
 export function BoardScorecard({
   lists,
   members,
@@ -74,7 +96,10 @@ export function BoardScorecard({
   onOpen: (cardId: string) => void;
   onClose: () => void;
 }) {
-  const people = members.filter((member) => member.status === "active" && member.userId);
+  const [day, setDay] = useState(todayKey);
+  const [dayHours, setDayHours] = useState("9.5");
+  const expectedMinutes = hoursToMinutes(dayHours);
+  const people = members.filter((member) => member.status === "active" && member.userId && member.role === "member");
   const rows = lists.flatMap((list) =>
     list.cards.filter((card) => card.approval !== "pending" && card.approval !== "rejected").map((card) => ({ card, list })),
   );
@@ -89,6 +114,28 @@ export function BoardScorecard({
   }));
   const maxPerson = Math.max(1, ...personBars.map((item) => item.counts.total));
   const maxList = Math.max(1, ...listBars.map((item) => item.counts.total));
+  const dayLogs = useMemo(() => {
+    const logs: (TimeLog & { cardId: string; cardTitle: string })[] = [];
+    for (const list of lists) {
+      for (const card of list.cards) {
+        for (const entry of card.timeLogs || []) {
+          if (logDayKey(entry.createdAt) !== day) continue;
+          logs.push({ ...entry, cardId: card.id, cardTitle: card.title });
+        }
+      }
+    }
+    return logs;
+  }, [lists, day]);
+  const timeByPerson = people
+    .map((member) => {
+      const logs = dayLogs.filter((entry) => entry.userId === member.userId);
+      const minutes = logs.reduce((sum, entry) => sum + entry.minutes, 0);
+      return { member, minutes, logs };
+    })
+    .sort((a, b) => b.minutes - a.minutes || (a.member.name || "").localeCompare(b.member.name || ""));
+  const teamMinutes = timeByPerson.reduce((sum, row) => sum + row.minutes, 0);
+  const selectedTime =
+    selectedId === "all" ? null : timeByPerson.find((row) => row.member.userId === selectedId) || null;
 
   return (
     <div className="absolute inset-x-0 bottom-14 top-14 z-20 overflow-y-auto bg-[#f7f8fa]">
@@ -111,6 +158,108 @@ export function BoardScorecard({
           <Kpi label="Overdue" value={counts.overdue} tone="bad" />
           <Kpi label="Still open" value={counts.open} />
         </div>
+        <section className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Daily time</h3>
+              <p className="mt-1 text-xs text-[#5e6c84]">
+                Choose a date and the workday length. Compare how much each person logged against that day.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs text-[#5e6c84]">
+                Date
+                <input
+                  type="date"
+                  value={day}
+                  onChange={(event) => setDay(event.target.value)}
+                  className="mt-1 block rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm text-[#172b4d]"
+                />
+              </label>
+              <label className="text-xs text-[#5e6c84]">
+                Day hours
+                <input
+                  type="number"
+                  min="1"
+                  max="24"
+                  step="0.5"
+                  value={dayHours}
+                  onChange={(event) => setDayHours(event.target.value)}
+                  className="mt-1 block w-24 rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm text-[#172b4d]"
+                />
+              </label>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl bg-[#f7f8f9] px-3 py-2">
+              <p className="text-xs text-[#5e6c84]">Team logged</p>
+              <p className="text-lg font-semibold">{formatMinutes(teamMinutes)}</p>
+            </div>
+            <div className="rounded-xl bg-[#f7f8f9] px-3 py-2">
+              <p className="text-xs text-[#5e6c84]">Expected day</p>
+              <p className="text-lg font-semibold">{formatMinutes(expectedMinutes)}</p>
+            </div>
+            <div className="rounded-xl bg-[#f7f8f9] px-3 py-2">
+              <p className="text-xs text-[#5e6c84]">People with time</p>
+              <p className="text-lg font-semibold">{timeByPerson.filter((row) => row.minutes > 0).length}</p>
+            </div>
+            <div className="rounded-xl bg-[#f7f8f9] px-3 py-2">
+              <p className="text-xs text-[#5e6c84]">Entries</p>
+              <p className="text-lg font-semibold">{dayLogs.length}</p>
+            </div>
+          </div>
+          <ul className="mt-4 flex flex-col gap-3">
+            {timeByPerson.map((row) => {
+              const pct = Math.min(100, Math.round((row.minutes / expectedMinutes) * 100));
+              const remaining = expectedMinutes - row.minutes;
+              return (
+                <li key={row.member.id} className="rounded-xl border border-[#f1f2f4] px-3 py-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onSelect(row.member.userId || "all")}>
+                      <Avatar name={row.member.name || row.member.email} photo={row.member.photo} size={28} />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{row.member.name || row.member.email}</span>
+                        <span className="text-xs text-[#5e6c84]">
+                          {formatMinutes(row.minutes)} of {formatMinutes(expectedMinutes)}
+                          {remaining > 0
+                            ? ` · ${formatMinutes(remaining)} left`
+                            : remaining < 0
+                              ? ` · ${formatMinutes(-remaining)} over`
+                              : " · full day"}
+                        </span>
+                      </span>
+                    </button>
+                    <span className={cx("text-sm font-semibold", row.minutes >= expectedMinutes ? "text-[#216e4e]" : "text-[#172b4d]")}>
+                      {pct}%
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#f1f2f4]">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${pct}%`, backgroundColor: row.minutes >= expectedMinutes ? "#1f845a" : "#0c66e4" }}
+                    />
+                  </div>
+                  {selectedId === row.member.userId && row.logs.length > 0 ? (
+                    <ul className="mt-3 flex flex-col gap-1 border-t border-[#f1f2f4] pt-2">
+                      {row.logs.map((entry) => (
+                        <li key={entry.id}>
+                          <button type="button" onClick={() => onOpen(entry.cardId)} className="w-full rounded-md px-1 py-1 text-left text-xs hover:bg-[#f7f8f9]">
+                            <span className="font-medium text-[#172b4d]">{formatMinutes(entry.minutes)}</span>
+                            <span className="text-[#5e6c84]"> on {entry.cardTitle}</span>
+                            {entry.note ? <span className="text-[#5e6c84]"> · {entry.note}</span> : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          {selectedTime && selectedTime.minutes === 0 ? (
+            <p className="mt-3 text-sm text-[#5e6c84]">No time logged for this person on this date.</p>
+          ) : null}
+        </section>
         <section className="rounded-2xl bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold">By person</h3>
           <div className="mt-3 flex flex-wrap gap-2">

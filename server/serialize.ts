@@ -70,10 +70,24 @@ export function cardJson(card: CardDoc): Card {
       type: file.type === "video" ? "video" : "image",
       thumbnailUrl: file.thumbnailUrl,
     })),
+    links: (card.links || []).map((link) => ({
+      id: link.id,
+      title: link.title,
+      url: link.url,
+    })),
+    timeLogs: (card.timeLogs || []).map((entry) => ({
+      id: entry.id,
+      minutes: Number(entry.minutes) || 0,
+      note: entry.note || "",
+      userId: String(entry.userId),
+      userName: entry.userName || "Member",
+      createdAt: entry.createdAt || iso(card.get("createdAt")),
+    })),
     createdBy: String(card.createdBy),
     createdAt: iso(card.get("createdAt")),
     approval: card.approval === "pending" || card.approval === "approved" || card.approval === "rejected" ? card.approval : null,
     location: card.location || "",
+    suggestions: card.suggestions || "",
   };
 }
 

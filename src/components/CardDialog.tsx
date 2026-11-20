@@ -6,7 +6,7 @@ import { LABEL_PRESETS, type Card, type Comment, type List, type Membership, typ
 import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
 import { fileKind } from "@/lib/board-state";
-import { errorMessage, formatDue, formatWhen, isOverdue } from "@/lib/format";
+import { errorMessage, formatDue, formatMinutes, formatWhen, isOverdue } from "@/lib/format";
 import { Avatar, cx } from "@/components/ui";
 import { MentionField, MentionText, mentionIdsIn, mentionPeople } from "@/components/MentionField";
 
@@ -50,8 +50,17 @@ export function CardDialog({
 }: CardDialogProps) {
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
+  const [suggestionsDraft, setSuggestionsDraft] = useState<string | null>(null);
+  const [linkTitle, setLinkTitle] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [customHours, setCustomHours] = useState("");
+  const [customMinutes, setCustomMinutes] = useState("");
+  const [timeNote, setTimeNote] = useState("");
+  const [timeBusy, setTimeBusy] = useState(false);
   const title = titleDraft ?? card.title;
   const description = descriptionDraft ?? card.description;
+  const suggestions = suggestionsDraft ?? card.suggestions ?? "";
+  const timeTotal = (card.timeLogs || []).reduce((sum, entry) => sum + (entry.minutes || 0), 0);
   const [checkText, setCheckText] = useState("");
   const [copyListId, setCopyListId] = useState(card.listId);
   const [copying, setCopying] = useState(false);
@@ -69,6 +78,7 @@ export function CardDialog({
   const mentionOpen = useRef(false);
   const people = members.filter((member) => member.status === "active" && member.userId);
   const tagPeople = mentionPeople(members);
+  const canEdit = !locked;
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -116,35 +126,229 @@ export function CardDialog({
           <div>
             <input
               value={title}
+              readOnly={!canEdit}
               onChange={(event) => setTitleDraft(event.target.value)}
               onBlur={() => {
                 const next = title.trim();
                 setTitleDraft(null);
-                if (next && next !== card.title) void save({ title: next });
+                if (canEdit && next && next !== card.title) void save({ title: next });
               }}
-              className="w-full bg-transparent text-xl font-semibold text-[#172b4d] outline-none"
+              className={cx(
+                "w-full rounded-lg bg-white px-3 py-2 text-xl font-semibold text-[#172b4d] outline-none",
+                canEdit ? "border border-[#dfe1e6] focus:border-[#0c66e4]" : "border border-transparent",
+              )}
             />
             <p className="mt-1 text-sm text-[#5e6c84]">
               in list <span className="font-medium text-[#172b4d]">{lists.find((list) => list.id === card.listId)?.title}</span>
               {card.createdAt ? <time dateTime={card.createdAt}> · {formatWhen(card.createdAt)}</time> : null}
+              {canEdit ? <span> · Edit any field below</span> : <span> · This board is closed</span>}
             </p>
 
             <section className="mt-5">
-              <h3 className="mb-2 text-sm font-semibold">Description</h3>
+              <h3 className="mb-2 text-sm font-semibold">Work notes</h3>
               <MentionField
                 value={description}
                 people={tagPeople}
                 menuRef={mentionOpen}
                 rows={4}
-                placeholder="Add a more detailed description... Type @ to tag a member"
+                readOnly={!canEdit}
+                placeholder="What was done, progress, blockers... Type @ to tag a member"
                 onChange={(next) => setDescriptionDraft(next)}
                 onBlur={() => {
                   const next = descriptionDraft ?? card.description;
                   setDescriptionDraft(null);
-                  if (next !== card.description) void save({ description: next, mentionIds: mentionIdsIn(next, tagPeople) });
+                  if (canEdit && next !== card.description) void save({ description: next, mentionIds: mentionIdsIn(next, tagPeople) });
                 }}
-                className="w-full resize-y rounded-lg border border-transparent bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
+                className="w-full resize-y rounded-lg border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
               />
+            </section>
+
+            <section className="mt-5">
+              <h3 className="mb-2 text-sm font-semibold">Suggestions</h3>
+              <MentionField
+                value={suggestions}
+                people={tagPeople}
+                rows={3}
+                readOnly={!canEdit}
+                placeholder="Ideas, feedback, or next steps... Type @ to tag a member"
+                onChange={(next) => setSuggestionsDraft(next)}
+                onBlur={() => {
+                  const next = suggestionsDraft ?? card.suggestions ?? "";
+                  setSuggestionsDraft(null);
+                  if (canEdit && next !== (card.suggestions || "")) void save({ suggestions: next, mentionIds: mentionIdsIn(next, tagPeople) });
+                }}
+                className="w-full resize-y rounded-lg border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
+              />
+            </section>
+
+            <section className="mt-5">
+              <h3 className="mb-2 text-sm font-semibold">Links</h3>
+              {(card.links || []).length > 0 ? (
+                <ul className="mb-2 flex flex-col gap-1">
+                  {(card.links || []).map((link) => (
+                    <li key={link.id} className="flex items-center gap-2 rounded-md bg-white px-2 py-1.5">
+                      <a href={link.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm font-medium text-[#0c66e4]">
+                        {link.title || link.url}
+                      </a>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          aria-label="Remove link"
+                          className="text-[#5e6c84]"
+                          onClick={() => void save({ links: (card.links || []).filter((item) => item.id !== link.id) })}
+                        >
+                          ✕
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mb-2 text-sm text-[#5e6c84]">Add Figma, Drive, live page, or any work link.</p>
+              )}
+              {canEdit ? (
+                <form
+                  className="flex flex-col gap-2 sm:flex-row"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const url = linkUrl.trim();
+                    if (!url) return;
+                    const title = linkTitle.trim() || url;
+                    void save({
+                      links: [...(card.links || []), { id: crypto.randomUUID(), title, url }],
+                    }).then((saved) => {
+                      if (saved) {
+                        setLinkTitle("");
+                        setLinkUrl("");
+                      }
+                    });
+                  }}
+                >
+                  <input
+                    value={linkTitle}
+                    onChange={(event) => setLinkTitle(event.target.value)}
+                    placeholder="Link name"
+                    className="rounded-md border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4] sm:w-40"
+                  />
+                  <input
+                    value={linkUrl}
+                    onChange={(event) => setLinkUrl(event.target.value)}
+                    placeholder="https://..."
+                    className="min-w-0 flex-1 rounded-md border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
+                  />
+                  <button type="submit" className="rounded-md bg-[#091e420f] px-3 py-2 text-sm font-medium">
+                    Add link
+                  </button>
+                </form>
+              ) : null}
+            </section>
+
+            <section className="mt-5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">Time worked</h3>
+                <span className="text-sm font-medium text-[#172b4d]">{formatMinutes(timeTotal)}</span>
+              </div>
+              {canEdit ? (
+                <div className="rounded-lg border border-[#dfe1e6] bg-white p-3">
+                  <p className="mb-2 text-xs text-[#5e6c84]">Tap a button to add time quickly.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[15, 30, 60, 120].map((minutes) => (
+                      <button
+                        key={minutes}
+                        type="button"
+                        disabled={timeBusy}
+                        onClick={() => void addTime(minutes)}
+                        className="rounded-md bg-[#091e420f] px-3 py-1.5 text-sm font-medium hover:bg-[#091e4224] disabled:opacity-40"
+                      >
+                        +{formatMinutes(minutes)}
+                      </button>
+                    ))}
+                  </div>
+                  <form
+                    className="mt-3 flex flex-wrap items-end gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const hours = Number(customHours) || 0;
+                      const mins = Number(customMinutes) || 0;
+                      const total = Math.round(hours * 60 + mins);
+                      if (total < 1) return;
+                      void addTime(total).then((ok) => {
+                        if (ok) {
+                          setCustomHours("");
+                          setCustomMinutes("");
+                          setTimeNote("");
+                        }
+                      });
+                    }}
+                  >
+                    <label className="text-xs text-[#5e6c84]">
+                      Hours
+                      <input
+                        value={customHours}
+                        onChange={(event) => setCustomHours(event.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+                        inputMode="numeric"
+                        placeholder="0"
+                        className="mt-1 block w-16 rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
+                      />
+                    </label>
+                    <label className="text-xs text-[#5e6c84]">
+                      Minutes
+                      <input
+                        value={customMinutes}
+                        onChange={(event) => setCustomMinutes(event.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+                        inputMode="numeric"
+                        placeholder="0"
+                        className="mt-1 block w-16 rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
+                      />
+                    </label>
+                    <input
+                      value={timeNote}
+                      onChange={(event) => setTimeNote(event.target.value)}
+                      placeholder="What did you work on? (optional)"
+                      className="min-w-[12rem] flex-1 rounded-md border border-[#dfe1e6] px-2 py-1.5 text-sm outline-none focus:border-[#0c66e4]"
+                    />
+                    <button type="submit" disabled={timeBusy} className="rounded-md bg-[#0c66e4] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                      Add time
+                    </button>
+                  </form>
+                </div>
+              ) : null}
+              {(card.timeLogs || []).length > 0 ? (
+                <ul className="mt-2 flex flex-col gap-1">
+                  {[...(card.timeLogs || [])].reverse().map((entry) => (
+                    <li key={entry.id} className="flex items-start gap-2 rounded-md bg-white px-2 py-1.5 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-[#172b4d]">
+                          {formatMinutes(entry.minutes)} · {entry.userName}
+                        </p>
+                        <p className="text-xs text-[#5e6c84]">
+                          {formatWhen(entry.createdAt)}
+                          {entry.note ? ` · ${entry.note}` : ""}
+                        </p>
+                      </div>
+                      {canEdit && (entry.userId === currentUserId || canDelete) ? (
+                        <button
+                          type="button"
+                          aria-label="Remove time"
+                          className="text-[#5e6c84]"
+                          onClick={() => {
+                            setTimeBusy(true);
+                            api
+                              .deleteTime(card.id, entry.id)
+                              .then(onCard)
+                              .catch((err: unknown) => setError(errorMessage(err)))
+                              .finally(() => setTimeBusy(false));
+                          }}
+                        >
+                          ✕
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-sm text-[#5e6c84]">No time logged yet.</p>
+              )}
             </section>
 
             {card.attachments.length > 0 ? (
@@ -212,6 +416,7 @@ export function CardDialog({
                       <input
                         type="checkbox"
                         checked={item.done}
+                        disabled={!canEdit}
                         onChange={() =>
                           void save({
                             checklist: card.checklist.map((entry) => (entry.id === item.id ? { ...entry, done: !entry.done } : entry)),
@@ -220,38 +425,42 @@ export function CardDialog({
                         className="mt-1"
                       />
                       <span className={cx("flex-1 text-sm", item.done && "text-[#5e6c84] line-through")}>{item.text}</span>
-                      <button
-                        type="button"
-                        aria-label="Remove checklist item"
-                        className="text-[#5e6c84]"
-                        onClick={() => void save({ checklist: card.checklist.filter((entry) => entry.id !== item.id) })}
-                      >
-                        ✕
-                      </button>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          aria-label="Remove checklist item"
+                          className="text-[#5e6c84]"
+                          onClick={() => void save({ checklist: card.checklist.filter((entry) => entry.id !== item.id) })}
+                        >
+                          ✕
+                        </button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
               ) : null}
-              <form
-                className="flex gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const text = checkText.trim();
-                  if (!text) return;
-                  void save({ checklist: [...card.checklist, { id: crypto.randomUUID(), text, done: false }] });
-                  setCheckText("");
-                }}
-              >
-                <input
-                  value={checkText}
-                  onChange={(event) => setCheckText(event.target.value)}
-                  placeholder="Add an item"
-                  className="flex-1 rounded-md border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
-                />
-                <button type="submit" className="rounded-md bg-[#091e420f] px-3 text-sm font-medium">
-                  Add
-                </button>
-              </form>
+              {canEdit ? (
+                <form
+                  className="flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const text = checkText.trim();
+                    if (!text) return;
+                    void save({ checklist: [...card.checklist, { id: crypto.randomUUID(), text, done: false }] });
+                    setCheckText("");
+                  }}
+                >
+                  <input
+                    value={checkText}
+                    onChange={(event) => setCheckText(event.target.value)}
+                    placeholder="Add an item"
+                    className="flex-1 rounded-md border border-[#dfe1e6] bg-white px-3 py-2 text-sm outline-none focus:border-[#0c66e4]"
+                  />
+                  <button type="submit" className="rounded-md bg-[#091e420f] px-3 text-sm font-medium">
+                    Add
+                  </button>
+                </form>
+              ) : null}
             </section>
 
             {card.approval && (canReview || card.approval !== "approved") ? (
@@ -484,13 +693,17 @@ export function CardDialog({
                     <button
                       key={preset.color}
                       type="button"
+                      disabled={!canEdit}
                       onClick={() => {
                         const labels = selected
                           ? card.labels.filter((label) => label.color !== preset.color)
                           : [...card.labels, { id: crypto.randomUUID(), name: preset.name, color: preset.color }];
                         void save({ labels });
                       }}
-                      className={cx("rounded px-2 py-1 text-left text-xs font-semibold text-white", selected && "ring-2 ring-[#172b4d]")}
+                      className={cx(
+                        "rounded px-2 py-1 text-left text-xs font-semibold text-white disabled:opacity-50",
+                        selected && "ring-2 ring-[#172b4d]",
+                      )}
                       style={{ backgroundColor: preset.color }}
                     >
                       {preset.name}
@@ -503,8 +716,10 @@ export function CardDialog({
               <input
                 key={`${card.id}:${card.location}`}
                 defaultValue={card.location}
+                readOnly={!canEdit}
                 placeholder="City or address"
                 onBlur={(event) => {
+                  if (!canEdit) return;
                   const next = event.target.value.trim();
                   if (next !== card.location) void save({ location: next });
                 }}
@@ -515,8 +730,9 @@ export function CardDialog({
               <input
                 type="date"
                 value={card.dueDate || ""}
+                disabled={!canEdit}
                 onChange={(event) => void save({ dueDate: event.target.value || null })}
-                className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm"
+                className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm disabled:opacity-50"
               />
               {card.dueDate ? (
                 <p className={cx("mt-1 text-xs", isOverdue(card.dueDate) ? "text-[#ae2e24]" : "text-[#5e6c84]")}>
@@ -528,6 +744,7 @@ export function CardDialog({
             <SideBlock title="List">
               <select
                 value={card.listId}
+                disabled={!canEdit}
                 onChange={(event) => {
                   const listId = event.target.value;
                   const dest = lists.find((list) => list.id === listId);
@@ -535,7 +752,7 @@ export function CardDialog({
                   const position = positionBetween(others.at(-1)?.position ?? null, null);
                   void save({ listId, position });
                 }}
-                className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm"
+                className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm disabled:opacity-50"
               >
                 {lists.map((list) => (
                   <option key={list.id} value={list.id}>
@@ -630,6 +847,21 @@ export function CardDialog({
     </div>
   );
 
+  async function addTime(minutes: number) {
+    if (!canEdit || timeBusy) return false;
+    setTimeBusy(true);
+    setError(null);
+    try {
+      onCard(await api.addTime(card.id, minutes, timeNote.trim()));
+      return true;
+    } catch (err) {
+      setError(errorMessage(err));
+      return false;
+    } finally {
+      setTimeBusy(false);
+    }
+  }
+
   async function review(decision: "approved" | "rejected") {
     setReviewing(true);
     setError(null);
@@ -658,6 +890,8 @@ export function CardDialog({
       if (memberIds.has(currentUserId) && !assigneeIds.includes(currentUserId)) assigneeIds.push(currentUserId);
       const saved = await api.updateCard(created.id, {
         description: card.description,
+        suggestions: card.suggestions || "",
+        links: card.links || [],
         labels: card.labels,
         checklist: card.checklist,
         dueDate: card.dueDate,

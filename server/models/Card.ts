@@ -30,18 +30,42 @@ const attachmentSchema = new Schema(
   { _id: false },
 );
 
+const linkSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    title: { type: String, required: true },
+    url: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const timeLogSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    minutes: { type: Number, required: true },
+    note: { type: String, default: "" },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    userName: { type: String, required: true },
+    createdAt: { type: String, required: true },
+  },
+  { _id: false },
+);
+
 const cardSchema = new Schema(
   {
     listId: { type: Schema.Types.ObjectId, ref: "List", required: true, index: true },
     boardId: { type: Schema.Types.ObjectId, ref: "Board", required: true, index: true },
     title: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
+    suggestions: { type: String, default: "" },
     position: { type: Number, required: true },
     dueDate: { type: String, default: null },
     labels: { type: [labelSchema], default: [] },
     assigneeIds: { type: [Schema.Types.ObjectId], ref: "User", default: [] },
     checklist: { type: [checklistSchema], default: [] },
     attachments: { type: [attachmentSchema], default: [] },
+    links: { type: [linkSchema], default: [] },
+    timeLogs: { type: [timeLogSchema], default: [] },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     approval: { type: String, enum: ["pending", "approved", "rejected", null], default: null },
     location: { type: String, default: "" },

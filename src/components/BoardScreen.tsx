@@ -47,6 +47,8 @@ export function BoardScreen() {
   const [view, setView] = useState<"approval" | "approved" | "normal">("normal");
   const [layout, setLayout] = useState<BoardLayout>("board");
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
@@ -218,7 +220,10 @@ export function BoardScreen() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setView(id)}
+                onClick={() => {
+                  setView(id);
+                  setSelectedIds([]);
+                }}
                 className={`rounded px-3 py-1 text-sm font-medium ${view === id ? "bg-white text-[#172b4d]" : "text-white hover:bg-white/15"}`}
               >
                 {label}
@@ -298,14 +303,14 @@ export function BoardScreen() {
       ) : null}
       {view === "approval" ? (
         <p className="px-4 pt-3 text-sm text-white/90">
-          {isAdmin
-            ? "Tasks a member adds stay here until you approve them. Open a task for Approve, Reject, and Chat."
+          {canReview
+            ? "Select one or more tasks, then approve or reject them together. You can still open a task for Chat."
             : "Tasks you add stay here until the admin approves them. Other members cannot see them yet."}
         </p>
       ) : view === "approved" ? (
         <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process for the people tagged on them.</p>
       ) : !canReview ? (
-        <p className="px-4 pt-3 text-sm text-white/90">You only see your tasks. Add a card as usual. It shows Request for approval until the owner or admin approves it.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">You only see your tasks. Click a card to edit it. New cards show Request for approval until the owner or admin approves them.</p>
       ) : null}
       {!isAdmin && taskCount === 0 ? (
         <div className="mx-3 mt-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
@@ -351,9 +356,73 @@ export function BoardScreen() {
             canDelete={isAdmin}
             locked={locked}
             arrangeLocked={searchFiltering || view !== "normal"}
+            selectable={canReview && view === "approval" && layout === "board"}
+            selectedIds={new Set(selectedIds)}
+            onToggleSelect={(cardId) => {
+              setSelectedIds((current) => (current.includes(cardId) ? current.filter((id) => id !== cardId) : [...current, cardId]));
+            }}
           />
         )}
       </div>
+      {canReview && view === "approval" && selectedIds.length > 0 ? (
+        <div className="fixed inset-x-0 bottom-14 z-20 flex justify-center px-3 pb-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#172b4d] px-3 py-2 text-sm text-white shadow-xl">
+            <span>{selectedIds.length} selected</span>
+            <button
+              type="button"
+              disabled={bulkBusy || locked}
+              onClick={() => {
+                setBulkBusy(true);
+                void Promise.all(
+                  selectedIds.map((id) =>
+                    api.reviewCard(id, "approved").then((card) => {
+                      live.setLists((current) => upsertCard(current, card));
+                      return card;
+                    }),
+                  ),
+                )
+                  .then(() => {
+                    setSelectedIds([]);
+                    setView("normal");
+                    setToast("Selected tasks approved.");
+                  })
+                  .catch((error) => setToast(errorMessage(error)))
+                  .finally(() => setBulkBusy(false));
+              }}
+              className="rounded-md bg-[#1f845a] px-3 py-1.5 font-medium disabled:opacity-40"
+            >
+              Approve selected
+            </button>
+            <button
+              type="button"
+              disabled={bulkBusy || locked}
+              onClick={() => {
+                setBulkBusy(true);
+                void Promise.all(
+                  selectedIds.map((id) =>
+                    api.reviewCard(id, "rejected").then((card) => {
+                      live.setLists((current) => upsertCard(current, card));
+                      return card;
+                    }),
+                  ),
+                )
+                  .then(() => {
+                    setSelectedIds([]);
+                    setToast("Selected tasks rejected.");
+                  })
+                  .catch((error) => setToast(errorMessage(error)))
+                  .finally(() => setBulkBusy(false));
+              }}
+              className="rounded-md bg-[#c9372c] px-3 py-1.5 font-medium disabled:opacity-40"
+            >
+              Reject selected
+            </button>
+            <button type="button" disabled={bulkBusy} onClick={() => setSelectedIds([])} className="rounded-md px-2 py-1.5 hover:bg-white/10">
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
       {shareOpen ? (
         <Modal title="Share this board" onClose={() => setShareOpen(false)}>
           <p className="text-sm text-[#5e6c84]">

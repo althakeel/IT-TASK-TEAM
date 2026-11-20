@@ -1,6 +1,15 @@
 import { randomUUID } from "crypto";
 import mongoose from "mongoose";
-import { BOARD_BACKGROUNDS, BOARD_GRADIENTS, LABEL_PRESETS, type Attachment, type ChecklistItem, type Label, type Role } from "../shared/types";
+import {
+  BOARD_BACKGROUNDS,
+  BOARD_GRADIENTS,
+  LABEL_PRESETS,
+  type Attachment,
+  type CardLink,
+  type ChecklistItem,
+  type Label,
+  type Role,
+} from "../shared/types";
 import { HttpError } from "./http";
 import { assertImageKitUrl } from "./imagekit";
 import { MembershipModel } from "./models";
@@ -130,6 +139,38 @@ export function parseAttachments(value: unknown): Attachment[] {
   if (!Array.isArray(value)) throw new HttpError(400, "Attachments are invalid.");
   if (value.length > 20) throw new HttpError(400, "A card can have up to 20 attachments.");
   return value.map((item) => parseAttachment(item));
+}
+
+export function parseLinks(value: unknown): CardLink[] {
+  if (!Array.isArray(value)) throw new HttpError(400, "Links are invalid.");
+  if (value.length > 20) throw new HttpError(400, "A card can have up to 20 links.");
+  const links: CardLink[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") throw new HttpError(400, "Links are invalid.");
+    const record = item as Record<string, unknown>;
+    let url = typeof record.url === "string" ? record.url.trim() : "";
+    if (!url) continue;
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad");
+      url = parsed.toString();
+    } catch {
+      throw new HttpError(400, "Enter a valid link.");
+    }
+    const title =
+      typeof record.title === "string" && record.title.trim()
+        ? record.title.trim().slice(0, 120)
+        : (() => {
+            try {
+              return new URL(url).hostname;
+            } catch {
+              return "Link";
+            }
+          })();
+    links.push({ id: keepId(record.id), title, url });
+  }
+  return links;
 }
 
 export async function activeMemberIds(workspaceId: string, ids: string[]): Promise<string[]> {

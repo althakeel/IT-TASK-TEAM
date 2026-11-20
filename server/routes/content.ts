@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { adminEmail, isAdminEmail } from "../admin";
 import { requireBoard, requireUser } from "../access";
 import { assertAdmin, assertCanViewCard } from "../guards";
+import { randomUUID } from "crypto";
 import { asyncHandler, bodyOf, clientMutationId, HttpError, param } from "../http";
 import { assertImageKitUrl, imageKitClient } from "../imagekit";
 import { CardModel, CommentModel, ListModel, UserModel } from "../models";
@@ -20,6 +21,7 @@ import {
   parseChecklist,
   parseDueDate,
   parseLabels,
+  parseLinks,
 } from "../validate";
 import { nextCardPosition, nextListPosition, rebalanceCards, rebalanceLists } from "../order";
 import { emitBoard } from "../realtime";
@@ -161,10 +163,12 @@ contentRouter.patch(
 
     if (body.title !== undefined) card.title = cleanName(body.title, "Card title", 200);
     if (body.description !== undefined) card.description = optionalText(body.description, 20000) ?? "";
+    if (body.suggestions !== undefined) card.suggestions = optionalText(body.suggestions, 20000) ?? "";
     if (body.dueDate !== undefined) card.set("dueDate", parseDueDate(body.dueDate));
     if (body.location !== undefined) card.location = optionalText(body.location, 200) ?? "";
     if (body.labels !== undefined) card.set("labels", parseLabels(body.labels));
     if (body.checklist !== undefined) card.set("checklist", parseChecklist(body.checklist));
+    if (body.links !== undefined) card.set("links", parseLinks(body.links));
     if (body.assigneeIds !== undefined) {
       card.set("assigneeIds", await parseAssignees(body.assigneeIds, String(board.workspaceId)));
     }
@@ -199,12 +203,14 @@ contentRouter.patch(
     if (
       body.title === undefined &&
       body.description === undefined &&
+      body.suggestions === undefined &&
       body.dueDate === undefined &&
       body.location === undefined &&
       body.labels === undefined &&
       body.checklist === undefined &&
       body.assigneeIds === undefined &&
       body.attachments === undefined &&
+      body.links === undefined &&
       body.listId === undefined &&
       body.position === undefined
     ) {
@@ -315,6 +321,62 @@ contentRouter.delete(
     await card.save();
     emitBoard(String(board._id), "card:deleted", payload);
     res.json({ ok: true });
+  }),
+);
+
+contentRouter.post(
+  "/cards/:cardId/time",
+  asyncHandler(async (req, res) => {
+    const user = await requireUser(req);
+    const card = await CardModel.findById(param(req.params.cardId));
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
+    const { board } = await requireBoard(String(user._id), String(card.boardId));
+    assertCanViewCard(user, card);
+    if (board.closed) throw new HttpError(403, "This board is closed.");
+    const body = bodyOf(req);
+    const minutes = Number(body.minutes);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 24 * 60) {
+      throw new HttpError(400, "Enter time between 1 minute and 24 hours.");
+    }
+    if ((card.timeLogs || []).length >= 200) throw new HttpError(400, "Too many time entries on this card.");
+    const note = typeof body.note === "string" ? body.note.trim().slice(0, 200) : "";
+    card.timeLogs.push({
+      id: randomUUID(),
+      minutes: Math.round(minutes),
+      note,
+      userId: user._id,
+      userName: user.name || user.email,
+      createdAt: new Date().toISOString(),
+    });
+    await card.save();
+    const dto = cardJson(card);
+    emitBoard(dto.boardId, "card:updated", { clientMutationId: clientMutationId(body), card: dto });
+    res.status(201).json(dto);
+  }),
+);
+
+contentRouter.delete(
+  "/cards/:cardId/time/:logId",
+  asyncHandler(async (req, res) => {
+    const user = await requireUser(req);
+    const card = await CardModel.findById(param(req.params.cardId));
+    if (!card || deletedDate(card)) throw new HttpError(404, "Card not found.");
+    const { board } = await requireBoard(String(user._id), String(card.boardId));
+    assertCanViewCard(user, card);
+    if (board.closed) throw new HttpError(403, "This board is closed.");
+    const logId = param(req.params.logId);
+    const entry = (card.timeLogs || []).find((item) => item.id === logId);
+    if (!entry) throw new HttpError(404, "Time entry not found.");
+    const isOwner = String(entry.userId) === String(user._id);
+    if (!isOwner && !isAdminEmail(user.email)) throw new HttpError(403, "You can only remove your own time.");
+    card.set(
+      "timeLogs",
+      (card.timeLogs || []).filter((item) => item.id !== logId),
+    );
+    await card.save();
+    const dto = cardJson(card);
+    emitBoard(dto.boardId, "card:updated", { clientMutationId: clientMutationId(bodyOf(req)), card: dto });
+    res.json(dto);
   }),
 );
 

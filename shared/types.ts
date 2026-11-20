@@ -123,18 +123,36 @@ export type Attachment = {
   thumbnailUrl: string;
 };
 
+export type CardLink = {
+  id: string;
+  title: string;
+  url: string;
+};
+
+export type TimeLog = {
+  id: string;
+  minutes: number;
+  note: string;
+  userId: string;
+  userName: string;
+  createdAt: string;
+};
+
 export type Card = {
   id: string;
   listId: string;
   boardId: string;
   title: string;
   description: string;
+  suggestions: string;
   position: number;
   dueDate: string | null;
   labels: Label[];
   assigneeIds: string[];
   checklist: ChecklistItem[];
   attachments: Attachment[];
+  links: CardLink[];
+  timeLogs: TimeLog[];
   createdBy: string;
   createdAt: string;
   approval: "pending" | "approved" | "rejected" | null;

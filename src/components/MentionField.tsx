@@ -56,6 +56,7 @@ export function MentionField({
   rows = 3,
   onBlur,
   className,
+  readOnly = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -65,6 +66,7 @@ export function MentionField({
   rows?: number;
   onBlur?: () => void;
   className?: string;
+  readOnly?: boolean;
 }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const [query, setQuery] = useState<string | null>(null);
@@ -109,18 +111,23 @@ export function MentionField({
         ref={fieldRef}
         value={value}
         rows={rows}
+        readOnly={readOnly}
         placeholder={placeholder}
         onChange={(event) => {
+          if (readOnly) return;
           onChange(event.target.value);
           readQuery(event.target.value, event.target.selectionStart);
         }}
-        onClick={(event) => readQuery(value, event.currentTarget.selectionStart)}
+        onClick={(event) => {
+          if (!readOnly) readQuery(value, event.currentTarget.selectionStart);
+        }}
         onKeyUp={(event) => {
+          if (readOnly) return;
           if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === "Tab") return;
           readQuery(value, event.currentTarget.selectionStart);
         }}
         onKeyDown={(event) => {
-          if (query === null || matches.length === 0) return;
+          if (readOnly || query === null || matches.length === 0) return;
           if (event.key === "ArrowDown") {
             event.preventDefault();
             setActive((current) => (current + 1) % matches.length);

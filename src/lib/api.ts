@@ -105,6 +105,9 @@ export const api = {
     request<Card>(`/api/lists/${listId}/cards`, "POST", { title, clientMutationId }),
   reviewCard: (cardId: string, decision: "approved" | "rejected") =>
     request<Card>(`/api/cards/${cardId}/approval`, "POST", { decision }),
+  addTime: (cardId: string, minutes: number, note = "") =>
+    request<Card>(`/api/cards/${cardId}/time`, "POST", { minutes, note }),
+  deleteTime: (cardId: string, logId: string) => request<Card>(`/api/cards/${cardId}/time/${logId}`, "DELETE"),
   updateCard: (cardId: string, patch: Record<string, unknown>) => request<Card>(`/api/cards/${cardId}`, "PATCH", patch),
   deleteCard: (cardId: string, clientMutationId: string) =>
     request<{ ok: true }>(`/api/cards/${cardId}`, "DELETE", { clientMutationId }),

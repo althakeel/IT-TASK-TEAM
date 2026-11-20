@@ -27,7 +27,7 @@ import type { Card, List, Membership } from "@shared/types";
 import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
 import { upsertCard } from "@/lib/board-state";
-import { errorMessage, formatDue, formatWhen, isOverdue } from "@/lib/format";
+import { errorMessage, formatDue, formatMinutes, formatWhen, isOverdue } from "@/lib/format";
 import { Avatar, Button, cx, Modal, TextInput } from "@/components/ui";
 
 type BoardProps = {
@@ -45,6 +45,9 @@ type BoardProps = {
   canDelete: boolean;
   locked: boolean;
   arrangeLocked?: boolean;
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (cardId: string) => void;
 };
 
 export function Board({
@@ -62,6 +65,9 @@ export function Board({
   canDelete,
   locked,
   arrangeLocked = false,
+  selectable = false,
+  selectedIds,
+  onToggleSelect,
 }: BoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<"card" | "list" | null>(null);
@@ -266,12 +272,15 @@ export function Board({
       boardId,
       title,
       description: "",
+      suggestions: "",
       position,
       dueDate: null,
       labels: [],
       assigneeIds: [],
       checklist: [],
       attachments: [],
+      links: [],
+      timeLogs: [],
       createdBy: "",
       createdAt: new Date().toISOString(),
       approval: null,
@@ -342,12 +351,15 @@ export function Board({
                 }}
                 onRename={(title) => void renameList(list.id, title)}
                 onDelete={canDelete ? () => void removeList(list.id) : null}
-                onAddCard={(title) => addCard(list.id, title)}
-                locked={locked}
-                arrangeLocked={arrangeLocked}
-              />
-            ))}
-          </SortableContext>
+              onAddCard={(title) => addCard(list.id, title)}
+              locked={locked}
+              arrangeLocked={arrangeLocked}
+              selectable={selectable}
+              selectedIds={selectedIds}
+              onToggleSelect={onToggleSelect}
+            />
+          ))}
+        </SortableContext>
           {locked ? null : (
           <div className="w-[272px] shrink-0">
             {addingList ? (
@@ -441,6 +453,9 @@ function ListColumn({
   onAddCard,
   locked,
   arrangeLocked,
+  selectable = false,
+  selectedIds,
+  onToggleSelect,
 }: {
   list: List;
   people: Map<string, Membership>;
@@ -451,6 +466,9 @@ function ListColumn({
   onAddCard: (title: string) => Promise<void>;
   locked: boolean;
   arrangeLocked: boolean;
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (cardId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: list.id,
@@ -518,7 +536,16 @@ function ListColumn({
         <SortableContext items={list.cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
             {list.cards.map((card) => (
-              <SortableCard key={card.id} card={card} people={people} locked={locked || arrangeLocked} onOpen={() => onOpenCard(card.id)} />
+              <SortableCard
+                key={card.id}
+                card={card}
+                people={people}
+                locked={locked || arrangeLocked}
+                selected={Boolean(selectedIds?.has(card.id))}
+                selectable={selectable}
+                onToggleSelect={onToggleSelect}
+                onOpen={() => onOpenCard(card.id)}
+              />
             ))}
           </div>
         </SortableContext>
@@ -601,17 +628,46 @@ function ListColumn({
   );
 }
 
-function SortableCard({ card, people, locked, onOpen }: { card: Card; people: Map<string, Membership>; locked: boolean; onOpen: () => void }) {
+function SortableCard({
+  card,
+  people,
+  locked,
+  selected,
+  selectable,
+  onToggleSelect,
+  onOpen,
+}: {
+  card: Card;
+  people: Map<string, Membership>;
+  locked: boolean;
+  selected: boolean;
+  selectable: boolean;
+  onToggleSelect?: (cardId: string) => void;
+  onOpen: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { type: "card", listId: card.listId },
-    disabled: locked,
+    disabled: locked || selectable,
   });
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={cx(isDragging && "opacity-40")}>
-      <button type="button" className="block w-full text-left" onClick={onOpen} {...attributes} {...listeners}>
-        <CardFace card={card} people={people} />
-      </button>
+      <div className={cx("relative rounded-lg", selected && "ring-2 ring-[#0c66e4]")}>
+        {selectable ? (
+          <label className="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded bg-white shadow-sm">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect?.(card.id)}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={`Select ${card.title}`}
+            />
+          </label>
+        ) : null}
+        <button type="button" className="block w-full text-left" onClick={onOpen} {...attributes} {...(selectable ? {} : listeners)}>
+          <CardFace card={card} people={people} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -619,6 +675,7 @@ function SortableCard({ card, people, locked, onOpen }: { card: Card; people: Ma
 function CardFace({ card, people, overlay = false }: { card: Card; people: Map<string, Membership>; overlay?: boolean }) {
   const cover = card.attachments[0];
   const done = card.checklist.filter((item) => item.done).length;
+  const timeTotal = (card.timeLogs || []).reduce((sum, entry) => sum + (entry.minutes || 0), 0);
   return (
     <article className={cx("overflow-hidden rounded-lg bg-white shadow-sm", overlay && "w-[256px] rotate-1 shadow-xl")}>
       {cover ? (
@@ -643,12 +700,14 @@ function CardFace({ card, people, overlay = false }: { card: Card; people: Map<s
               {formatDue(card.dueDate)}
             </span>
           ) : null}
-          {card.description ? <span aria-label="Has a description">☰</span> : null}
+          {card.description || card.suggestions ? <span aria-label="Has notes">☰</span> : null}
           {card.checklist.length > 0 ? (
             <span className={cx("rounded px-1.5 py-0.5", done === card.checklist.length && "bg-[#dcfff1] text-[#216e4e]")}>
               {done}/{card.checklist.length}
             </span>
           ) : null}
+          {(card.links || []).length > 0 ? <span>{card.links.length} link{card.links.length === 1 ? "" : "s"}</span> : null}
+          {timeTotal > 0 ? <span>{formatMinutes(timeTotal)}</span> : null}
           {card.attachments.length > 0 ? <span>{card.attachments.length} file{card.attachments.length === 1 ? "" : "s"}</span> : null}
           <span className="ml-auto flex -space-x-1">
             {card.assigneeIds.map((id) => {
