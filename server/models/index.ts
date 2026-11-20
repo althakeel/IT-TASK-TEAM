@@ -6,3 +6,4 @@ export { ListModel, type ListDoc } from "./List";
 export { CardModel, type CardDoc } from "./Card";
 export { CommentModel, type CommentDoc } from "./Comment";
 export { NotificationModel, type NotificationDoc } from "./Notification";
+export { TimeAlertModel, type TimeAlertDoc } from "./TimeAlert";

@@ -25,6 +25,7 @@ import {
 } from "../validate";
 import { nextCardPosition, nextListPosition, rebalanceCards, rebalanceLists } from "../order";
 import { emitBoard } from "../realtime";
+import { maybeAlertDayMax } from "../time-alerts";
 
 export const contentRouter = Router();
 
@@ -351,6 +352,7 @@ contentRouter.post(
     await card.save();
     const dto = cardJson(card);
     emitBoard(dto.boardId, "card:updated", { clientMutationId: clientMutationId(body), card: dto });
+    void maybeAlertDayMax(String(user._id)).catch((error) => console.error("Time alert failed.", error));
     res.status(201).json(dto);
   }),
 );

@@ -22,9 +22,11 @@ export function canViewCard(
   card: { assigneeIds?: Iterable<unknown> | null; createdBy?: unknown; approval?: string | null },
 ): boolean {
   if (canSeeEveryCard(user)) return true;
+  const userId = String(user._id);
+  if (isAssigned(card.assigneeIds || [], userId)) return true;
   const approval = card.approval || null;
-  if (approval === "pending" || approval === "rejected") return String(card.createdBy || "") === String(user._id);
-  return isAssigned(card.assigneeIds || [], String(user._id));
+  if (approval === "pending" || approval === "rejected") return String(card.createdBy || "") === userId;
+  return false;
 }
 
 export function assertCanViewCard(

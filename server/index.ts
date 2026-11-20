@@ -18,6 +18,7 @@ import { kpiRouter } from "./routes/kpis";
 import { trashRouter } from "./routes/trash";
 import { workspaceRouter } from "./routes/workspaces";
 import { attachSocket } from "./socket";
+import { startTimeAlertJob } from "./time-alerts";
 
 const app = express();
 const origin = process.env.CLIENT_ORIGIN || "http://localhost:3000";
@@ -94,6 +95,7 @@ connectDb()
   .finally(() => {
     httpServer.listen(port, () => {
       console.log(`API listening on ${port}`);
+      startTimeAlertJob();
     });
   });
 

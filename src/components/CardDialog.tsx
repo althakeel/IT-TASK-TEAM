@@ -472,8 +472,8 @@ export function CardDialog({
                   {card.approval === "approved"
                     ? "Approved. Only tagged members see this task."
                     : card.approval === "pending"
-                      ? "This stays on your board. Other members cannot see it until the owner or admin approves it."
-                      : "The owner or admin rejected this. Other members cannot see it."}
+                      ? "Waiting for approval. Only tagged members can see it until the owner or admin approves it."
+                      : "The owner or admin rejected this. Only tagged members can see it."}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {canReview && !locked && card.approval === "pending" ? (

@@ -310,7 +310,7 @@ export function BoardScreen() {
       ) : view === "approved" ? (
         <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process for the people tagged on them.</p>
       ) : !canReview ? (
-        <p className="px-4 pt-3 text-sm text-white/90">You only see your tasks. Click a card to edit it. New cards show Request for approval until the owner or admin approves them.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">You only see tasks you are tagged on. Click a card to edit it. New cards show Request for approval until the owner or admin approves them.</p>
       ) : null}
       {!isAdmin && taskCount === 0 ? (
         <div className="mx-3 mt-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
