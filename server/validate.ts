@@ -107,14 +107,19 @@ export function parseChecklist(value: unknown): ChecklistItem[] {
 }
 
 export function parseDueDate(value: unknown): string | null {
-  if (value === null || value === "") return null;
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(value)) {
     throw new HttpError(400, "Use a valid due date.");
   }
-  const [year, month, day] = value.split("-").map(Number);
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
     throw new HttpError(400, "Use a valid due date.");
+  }
+  if (value.length > 10) {
+    const hh = Number(value.slice(11, 13));
+    const mm = Number(value.slice(14, 16));
+    if (hh > 23 || mm > 59) throw new HttpError(400, "Use a valid due time.");
   }
   return value;
 }

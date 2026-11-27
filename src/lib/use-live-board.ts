@@ -43,7 +43,10 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
       }
       const viewer = viewerRef.current;
       if (!viewer.admin && (event.type === "card:created" || event.type === "card:updated" || event.type === "card:moved")) {
-        const visible = event.card.assigneeIds.includes(viewer.id) || event.card.createdBy === viewer.id;
+        const visible =
+          event.card.assigneeIds.includes(viewer.id) ||
+          event.card.createdBy === viewer.id ||
+          event.card.handoff?.fromUserId === viewer.id;
         if (!visible) {
           setLists((current) => current.map((list) => ({ ...list, cards: list.cards.filter((card) => card.id !== event.card.id) })));
           return;
@@ -228,6 +231,15 @@ export function useLiveBoard(boardId: string, enabled: boolean, viewerId = "", v
       setConnected(false);
     };
   }, [boardId, enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const onFocus = () => {
+      if (!draggingRef.current && loadedRef.current) void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [enabled, refresh]);
 
   return {
     detail,

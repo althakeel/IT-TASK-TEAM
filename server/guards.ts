@@ -19,11 +19,17 @@ export function isAssigned(assigneeIds: Iterable<unknown>, userId: string): bool
 
 export function canViewCard(
   user: { _id: unknown; email: string },
-  card: { assigneeIds?: Iterable<unknown> | null; createdBy?: unknown; approval?: string | null },
+  card: {
+    assigneeIds?: Iterable<unknown> | null;
+    createdBy?: unknown;
+    approval?: string | null;
+    handoff?: { fromUserId?: unknown } | null;
+  },
 ): boolean {
   if (canSeeEveryCard(user)) return true;
   const userId = String(user._id);
   if (isAssigned(card.assigneeIds || [], userId)) return true;
+  if (card.handoff && String(card.handoff.fromUserId || "") === userId) return true;
   const approval = card.approval || null;
   if (approval === "pending" || approval === "rejected") return String(card.createdBy || "") === userId;
   return false;
@@ -31,7 +37,12 @@ export function canViewCard(
 
 export function assertCanViewCard(
   user: UserDoc,
-  card: { assigneeIds?: Iterable<unknown> | null; createdBy?: unknown; approval?: string | null },
+  card: {
+    assigneeIds?: Iterable<unknown> | null;
+    createdBy?: unknown;
+    approval?: string | null;
+    handoff?: { fromUserId?: unknown } | null;
+  },
 ): void {
   if (!canViewCard(user, card)) throw new HttpError(404, "Card not found.");
 }

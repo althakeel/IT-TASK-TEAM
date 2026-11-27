@@ -138,6 +138,33 @@ export type TimeLog = {
   createdAt: string;
 };
 
+export type TimelineAppeal = {
+  requestedDueDate: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requestedBy: string;
+  requestedAt: string;
+};
+
+export type TaskHandoff = {
+  fromUserId: string;
+  fromUserName: string;
+  status: "pending_accept" | "accepted" | "submitted" | "approved";
+  acceptedAt: string | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  appeal: TimelineAppeal | null;
+};
+
+export type CardHistoryEvent = {
+  id: string;
+  action: string;
+  actorId: string;
+  actorName: string;
+  detail: string;
+  createdAt: string;
+};
+
 export type Card = {
   id: string;
   listId: string;
@@ -153,9 +180,11 @@ export type Card = {
   attachments: Attachment[];
   links: CardLink[];
   timeLogs: TimeLog[];
+  history: CardHistoryEvent[];
   createdBy: string;
   createdAt: string;
-  approval: "pending" | "approved" | "rejected" | null;
+  approval: "pending" | "approved" | "rejected" | "finalized" | null;
+  handoff: TaskHandoff | null;
   location: string;
 };
 

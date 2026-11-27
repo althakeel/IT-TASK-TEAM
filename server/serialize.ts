@@ -83,9 +83,50 @@ export function cardJson(card: CardDoc): Card {
       userName: entry.userName || "Member",
       createdAt: entry.createdAt || iso(card.get("createdAt")),
     })),
+    history: (card.history || []).map((event) => ({
+      id: event.id,
+      action: event.action,
+      actorId: String(event.actorId),
+      actorName: event.actorName || "Member",
+      detail: event.detail || "",
+      createdAt: event.createdAt || iso(card.get("createdAt")),
+    })),
     createdBy: String(card.createdBy),
     createdAt: iso(card.get("createdAt")),
-    approval: card.approval === "pending" || card.approval === "approved" || card.approval === "rejected" ? card.approval : null,
+    approval:
+      card.approval === "pending" ||
+      card.approval === "approved" ||
+      card.approval === "rejected" ||
+      card.approval === "finalized"
+        ? card.approval
+        : null,
+    handoff: card.handoff
+      ? {
+          fromUserId: String(card.handoff.fromUserId),
+          fromUserName: card.handoff.fromUserName || "Member",
+          status:
+            card.handoff.status === "accepted" ||
+            card.handoff.status === "submitted" ||
+            card.handoff.status === "approved"
+              ? card.handoff.status
+              : "pending_accept",
+          acceptedAt: card.handoff.acceptedAt || null,
+          submittedAt: card.handoff.submittedAt || null,
+          approvedAt: card.handoff.approvedAt || null,
+          appeal: card.handoff.appeal
+            ? {
+                requestedDueDate: card.handoff.appeal.requestedDueDate,
+                reason: card.handoff.appeal.reason || "",
+                status:
+                  card.handoff.appeal.status === "approved" || card.handoff.appeal.status === "rejected"
+                    ? card.handoff.appeal.status
+                    : "pending",
+                requestedBy: String(card.handoff.appeal.requestedBy),
+                requestedAt: card.handoff.appeal.requestedAt,
+              }
+            : null,
+        }
+      : null,
     location: card.location || "",
     suggestions: card.suggestions || "",
   };

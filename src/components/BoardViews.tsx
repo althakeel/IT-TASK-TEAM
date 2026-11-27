@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Card, List, Membership } from "@shared/types";
 import { Avatar } from "@/components/ui";
-import { dueWithinDays, formatDue, isOverdue } from "@/lib/format";
+import { dueDay, dueWithinDays, formatDue, isOverdue } from "@/lib/format";
 
 export type BoardLayout = "board" | "table" | "calendar" | "timeline" | "dashboard" | "map";
 
@@ -24,6 +24,11 @@ function rowsOf(lists: List[]): Row[] {
 
 function peopleMap(members: Membership[]): Map<string, Membership> {
   return new Map(members.filter((member) => member.userId).map((member) => [member.userId as string, member]));
+}
+
+/** Calendar/timeline bucket for a card: its due day (ignoring time), or its creation day. */
+function dueKey(card: { dueDate: string | null; createdAt: string }): string {
+  return card.dueDate ? dueDay(card.dueDate) : dayKey(new Date(card.createdAt || Date.now()));
 }
 
 function dayKey(date: Date): string {
@@ -171,9 +176,10 @@ function CalendarView({ rows, onOpen }: { rows: Row[]; onOpen: (cardId: string) 
     const map = new Map<string, Row[]>();
     for (const row of rows) {
       if (!row.card.dueDate) continue;
-      const list = map.get(row.card.dueDate) || [];
+      const key = dueDay(row.card.dueDate);
+      const list = map.get(key) || [];
       list.push(row);
-      map.set(row.card.dueDate, list);
+      map.set(key, list);
     }
     return map;
   }, [rows]);
@@ -240,7 +246,7 @@ function CalendarView({ rows, onOpen }: { rows: Row[]; onOpen: (cardId: string) 
 function laneHeight(cards: Card[]): number {
   const counts = new Map<string, number>();
   for (const card of cards) {
-    const key = card.dueDate || dayKey(new Date(card.createdAt || Date.now()));
+    const key = dueKey(card);
     counts.set(key, (counts.get(key) || 0) + 1);
   }
   return 8 + Math.max(1, ...counts.values(), 1) * 30;
@@ -250,7 +256,7 @@ function TimelineView({ lists, onOpen }: { lists: List[]; onOpen: (cardId: strin
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const cards = lists.flatMap((list) => list.cards);
-  const keys = cards.map((card) => card.dueDate || dayKey(new Date(card.createdAt || Date.now())));
+  const keys = cards.map((card) => dueKey(card));
   const sorted = keys.slice().sort();
   const start = parseDay(sorted[0] || dayKey(today));
   const end = parseDay(sorted[sorted.length - 1] || dayKey(addDays(today, 13)));
@@ -272,10 +278,10 @@ function TimelineView({ lists, onOpen }: { lists: List[]; onOpen: (cardId: strin
           <div className="sticky left-0 w-36 shrink-0 bg-white px-2 py-3 text-sm font-semibold">{list.title}</div>
           <div className="relative flex-1" style={{ height: laneHeight(list.cards) }}>
             {list.cards.map((card) => {
-              const key = card.dueDate || dayKey(new Date(card.createdAt || Date.now()));
+              const key = dueKey(card);
               const position = index.get(key);
               if (position === undefined) return null;
-              const slot = list.cards.filter((item) => (item.dueDate || dayKey(new Date(item.createdAt || Date.now()))) === key).findIndex((item) => item.id === card.id);
+              const slot = list.cards.filter((item) => (dueKey(item)) === key).findIndex((item) => item.id === card.id);
               return (
                 <button
                   key={card.id}
@@ -433,6 +439,7 @@ function statusLabel(card: Card): string {
   if (card.approval === "pending") return "Waiting approval";
   if (card.approval === "rejected") return "Rejected";
   if (card.approval === "approved") return "Approved";
+  if (card.approval === "finalized") return "Finalised";
   if (card.dueDate && isOverdue(card.dueDate)) return "Overdue";
   return "Open";
 }

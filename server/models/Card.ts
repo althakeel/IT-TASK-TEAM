@@ -51,6 +51,42 @@ const timeLogSchema = new Schema(
   { _id: false },
 );
 
+const timelineAppealSchema = new Schema(
+  {
+    requestedDueDate: { type: String, required: true },
+    reason: { type: String, default: "" },
+    status: { type: String, enum: ["pending", "approved", "rejected"], required: true },
+    requestedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    requestedAt: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const handoffSchema = new Schema(
+  {
+    fromUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    fromUserName: { type: String, required: true },
+    status: { type: String, enum: ["pending_accept", "accepted", "submitted", "approved"], required: true },
+    acceptedAt: { type: String, default: null },
+    submittedAt: { type: String, default: null },
+    approvedAt: { type: String, default: null },
+    appeal: { type: timelineAppealSchema, default: null },
+  },
+  { _id: false },
+);
+
+const historyEventSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    action: { type: String, required: true },
+    actorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    actorName: { type: String, required: true },
+    detail: { type: String, default: "" },
+    createdAt: { type: String, required: true },
+  },
+  { _id: false },
+);
+
 const cardSchema = new Schema(
   {
     listId: { type: Schema.Types.ObjectId, ref: "List", required: true, index: true },
@@ -66,8 +102,10 @@ const cardSchema = new Schema(
     attachments: { type: [attachmentSchema], default: [] },
     links: { type: [linkSchema], default: [] },
     timeLogs: { type: [timeLogSchema], default: [] },
+    history: { type: [historyEventSchema], default: [] },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    approval: { type: String, enum: ["pending", "approved", "rejected", null], default: null },
+    approval: { type: String, enum: ["pending", "approved", "rejected", "finalized", null], default: null },
+    handoff: { type: handoffSchema, default: null },
     location: { type: String, default: "" },
     deletedAt: { type: Date, default: null },
   },

@@ -6,7 +6,7 @@ import { LABEL_PRESETS, type Card, type Comment, type List, type Membership, typ
 import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
 import { fileKind } from "@/lib/board-state";
-import { errorMessage, formatDue, formatMinutes, formatWhen, isOverdue } from "@/lib/format";
+import { dueDay, dueTimestamp, dueToInput, errorMessage, formatDue, formatMinutes, formatWhen, hasDueTime, isOverdue } from "@/lib/format";
 import { Avatar, cx } from "@/components/ui";
 import { MentionField, MentionText, mentionIdsIn, mentionPeople } from "@/components/MentionField";
 
@@ -48,6 +48,10 @@ export function CardDialog({
   canReview,
   locked,
 }: CardDialogProps) {
+  // Given tasks can be finalised only by the person who gave them; other tasks by the admin.
+  const giverHandoff = card.handoff;
+  const canFinaliseCard = giverHandoff ? giverHandoff.fromUserId === currentUserId : canReview;
+
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
   const [suggestionsDraft, setSuggestionsDraft] = useState<string | null>(null);
@@ -69,6 +73,11 @@ export function CardDialog({
   const [chatImage, setChatImage] = useState<{ url: string; fileId: string; name: string } | null>(null);
   const [pane, setPane] = useState<"comments" | "chat">("chat");
   const [reviewing, setReviewing] = useState(false);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [acceptDate, setAcceptDate] = useState(card.dueDate ? dueToInput(card.dueDate) : "");
+  const [appealOpen, setAppealOpen] = useState(false);
+  const [appealDate, setAppealDate] = useState("");
+  const [appealReason, setAppealReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -463,17 +472,27 @@ export function CardDialog({
               ) : null}
             </section>
 
-            {card.approval && (canReview || card.approval !== "approved") ? (
+            {card.approval ? (
               <section className="mt-5 rounded-lg border border-[#dfe1e6] bg-white p-3">
                 <p className="text-sm font-semibold">
-                  {card.approval === "pending" ? "Request for approval" : card.approval === "approved" ? "Approved" : "Rejected"}
+                  {card.approval === "pending"
+                    ? "Request for approval"
+                    : card.approval === "approved"
+                      ? "Approved"
+                      : card.approval === "finalized"
+                        ? "Finalised"
+                        : "Rejected"}
                 </p>
                 <p className="mt-1 text-sm text-[#5e6c84]">
-                  {card.approval === "approved"
-                    ? "Approved. Only tagged members see this task."
-                    : card.approval === "pending"
-                      ? "Waiting for approval. Only tagged members can see it until the owner or admin approves it."
-                      : "The owner or admin rejected this. Only tagged members can see it."}
+                  {card.approval === "finalized"
+                    ? "The admin checked this work and marked it finalised."
+                    : card.approval === "approved"
+                      ? card.handoff
+                        ? "Approved. Only the person who gave this task can mark it finalised after checking."
+                        : "Approved by the admin. Only the admin can mark it finalised after checking."
+                      : card.approval === "pending"
+                        ? "Waiting for the admin. Only tagged members can see it until it is approved."
+                        : "The admin rejected this. Only tagged members can see it."}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {canReview && !locked && card.approval === "pending" ? (
@@ -506,12 +525,300 @@ export function CardDialog({
                       Approve
                     </button>
                   ) : null}
+                  {canFinaliseCard && !locked && card.approval === "approved" ? (
+                    <button
+                      type="button"
+                      disabled={reviewing}
+                      onClick={() => void review("finalized")}
+                      className="rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+                    >
+                      Mark finalised
+                    </button>
+                  ) : null}
                   <button type="button" onClick={() => setPane("chat")} className="rounded-md bg-[#091e420f] px-3 py-2 text-sm font-medium">
                     Chat
                   </button>
                 </div>
               </section>
             ) : null}
+
+            <section className="mt-5 rounded-lg border border-[#dfe1e6] bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold">
+                  {card.handoff
+                    ? `Given task · From ${card.handoff.fromUserName}${
+                        card.assigneeIds.length > 0
+                          ? ` → To ${card.assigneeIds
+                              .map((id) => people.find((m) => m.userId === id)?.name || people.find((m) => m.userId === id)?.email || "Member")
+                              .join(", ")}`
+                          : ""
+                      }`
+                    : "Give this task to a member"}
+                </p>
+                {card.handoff ? (
+                  <span className="rounded-full bg-[#f3f0ff] px-2.5 py-0.5 text-xs font-medium text-[#5e4db2]">
+                    {card.handoff.status === "pending_accept"
+                      ? "Waiting for member to approve"
+                      : card.handoff.status === "accepted"
+                        ? "In progress"
+                        : card.handoff.status === "submitted"
+                          ? "Submitted for giver approval"
+                          : "Approved by giver"}
+                  </span>
+                ) : null}
+              </div>
+
+              {!card.handoff ? (
+                <div className="mt-2">
+                  <p className="text-sm text-[#5e6c84]">
+                    Tag member(s) in the sidebar, then click below to formally give them this task. They will get an email to approve it and set their timeline.
+                  </p>
+                  {!locked ? (
+                    <button
+                      type="button"
+                      disabled={handoffBusy || card.assigneeIds.length === 0}
+                      onClick={() => void runHandoff({ action: "give", assigneeIds: card.assigneeIds })}
+                      className="mt-2 rounded-md bg-[#0c66e4] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                    >
+                      {card.assigneeIds.length === 0 ? "Tag a member first" : handoffBusy ? "Sending…" : "Give task & send email"}
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-2 space-y-3 text-sm">
+                  {(card.handoff.fromUserId === currentUserId || canReview) && !locked ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={handoffBusy}
+                        onClick={() => {
+                          if (window.confirm("Cancel and remove this given task? The member will be removed and notified.")) {
+                            void runHandoff({ action: "cancel" });
+                          }
+                        }}
+                        className="rounded-md bg-[#c9372c] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+                      >
+                        Cancel & remove given task
+                      </button>
+                    </div>
+                  ) : null}
+                  {card.handoff.status === "pending_accept" ? (
+                    card.assigneeIds.includes(currentUserId) || canReview ? (
+                      <div className="rounded-md bg-[#f7f8f9] p-2.5">
+                        <p className="text-xs font-medium text-[#44546f]">Approve this task and choose your timeline:</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <input
+                            type="datetime-local"
+                            value={acceptDate}
+                            onChange={(event) => setAcceptDate(event.target.value)}
+                            className="rounded-md border border-[#dfe1e6] bg-white px-2.5 py-1.5 text-sm"
+                          />
+                          <button
+                            type="button"
+                            disabled={handoffBusy || locked || !acceptDate}
+                            onClick={() => {
+                              const pickedMs = dueTimestamp(acceptDate);
+                              const pickedDay = dueDay(acceptDate);
+                              const conflicts = lists
+                                .flatMap((list) => list.cards)
+                                .filter((other) => {
+                                  if (other.id === card.id || !other.dueDate) return false;
+                                  if (!other.assigneeIds.includes(currentUserId)) return false;
+                                  if (other.approval === "finalized" || other.handoff?.status === "approved") return false;
+                                  const otherMs = dueTimestamp(other.dueDate);
+                                  return dueDay(other.dueDate) === pickedDay || Math.abs(otherMs - pickedMs) <= 2 * 60 * 60 * 1000;
+                                });
+                              if (conflicts.length > 0) {
+                                const lines = conflicts.map((c) => `• ${c.title} (${formatDue(c.dueDate || "")})`).join("\n");
+                                const ok = window.confirm(
+                                  `You already have task(s) scheduled around this time:\n\n${lines}\n\nDo you still want to approve with this timeline?`,
+                                );
+                                if (!ok) return;
+                              }
+                              void runHandoff({ action: "accept", dueDate: acceptDate });
+                            }}
+                            className="rounded-md bg-[#1f845a] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                          >
+                            Approve & set timeline
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[#5e6c84]">Waiting for the chosen member to approve and set their timeline.</p>
+                    )
+                  ) : null}
+
+                  {card.handoff.status === "accepted" && (card.assigneeIds.includes(currentUserId) || canReview) && !locked ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={handoffBusy}
+                        onClick={() => void runHandoff({ action: "submit" })}
+                        className="rounded-md bg-[#0c66e4] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                      >
+                        Submit uploaded work for approval
+                      </button>
+                      <button
+                        type="button"
+                        disabled={handoffBusy}
+                        onClick={() => setAppealOpen((open) => !open)}
+                        className="rounded-md bg-[#091e420f] px-3 py-1.5 text-sm font-medium text-[#172b4d]"
+                      >
+                        Appeal to increase timeline
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {appealOpen && card.handoff.status === "accepted" && !locked ? (
+                    <div className="rounded-md border border-[#dfe1e6] bg-[#f7f8f9] p-3">
+                      <p className="text-xs font-semibold text-[#44546f]">Request a new timeline</p>
+                      <div className="mt-2 flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="text-xs text-[#5e6c84]">
+                            New date & time
+                            <input
+                              type="datetime-local"
+                              value={appealDate}
+                              onChange={(event) => setAppealDate(event.target.value)}
+                              className="mt-1 block rounded-md border border-[#dfe1e6] bg-white px-2.5 py-1.5 text-sm text-[#172b4d]"
+                            />
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          value={appealReason}
+                          onChange={(event) => setAppealReason(event.target.value)}
+                          placeholder="Reason for extra time (required)"
+                          className="w-full rounded-md border border-[#dfe1e6] bg-white px-2.5 py-1.5 text-sm"
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={handoffBusy || !appealDate || !appealReason.trim()}
+                            onClick={() =>
+                              void runHandoff({ action: "appeal", requestedDueDate: appealDate, reason: appealReason.trim() }).then((ok) => {
+                                if (ok) {
+                                  setAppealOpen(false);
+                                  setAppealDate("");
+                                  setAppealReason("");
+                                }
+                              })
+                            }
+                            className="rounded-md bg-[#0c66e4] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                          >
+                            {handoffBusy ? "Sending…" : "Send appeal"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAppealOpen(false)}
+                            className="rounded-md bg-[#091e420f] px-3 py-1.5 text-sm font-medium text-[#172b4d]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {card.handoff.status === "submitted" ? (
+                    card.handoff.fromUserId === currentUserId || canReview ? (
+                      <div className="rounded-md bg-[#f7f8f9] p-2.5">
+                        <p className="text-xs font-semibold text-[#172b4d]">Review & Approve</p>
+                        <p className="mt-0.5 text-xs text-[#5e6c84]">
+                          Review the uploaded work. Once you approve, the member can move this task to Completed / Deployed.
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={handoffBusy || locked}
+                            onClick={() => void runHandoff({ action: "approve" })}
+                            className="rounded-md bg-[#1f845a] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                          >
+                            Approve completed task
+                          </button>
+                          <button
+                            type="button"
+                            disabled={handoffBusy || locked}
+                            onClick={() => void runHandoff({ action: "request_changes" })}
+                            className="rounded-md bg-[#c9372c] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                          >
+                            Request changes
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[#5e6c84]">
+                        Submitted for review. Waiting for {card.handoff.fromUserName} to review and approve before you can move it to Completed / Deployed.
+                      </p>
+                    )
+                  ) : null}
+
+                  {card.handoff.status === "approved" ? (
+                    <p className="font-medium text-[#216e4e]">
+                      Approved by {card.handoff.fromUserName}. You can now move this task to Completed / Deployed.
+                    </p>
+                  ) : null}
+
+                  {card.handoff.appeal ? (
+                    <div className="rounded-md border border-[#dfe1e6] bg-[#fffbeb] p-2.5">
+                      <p className="text-xs font-semibold text-[#7f5f01]">
+                        Timeline appeal ({card.handoff.appeal.status}) · Requested: {formatDue(card.handoff.appeal.requestedDueDate)}
+                      </p>
+                      {card.handoff.appeal.reason ? (
+                        <p className="mt-1 text-xs text-[#44546f]">
+                          <span className="font-semibold">Reason:</span> {card.handoff.appeal.reason}
+                        </p>
+                      ) : null}
+                      {card.handoff.appeal.status === "pending" && (card.handoff.fromUserId === currentUserId || canReview) && !locked ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={handoffBusy}
+                            onClick={() => void runHandoff({ action: "approve_appeal" })}
+                            className="rounded-md bg-[#1f845a] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+                          >
+                            Approve new timeline
+                          </button>
+                          <button
+                            type="button"
+                            disabled={handoffBusy}
+                            onClick={() => void runHandoff({ action: "reject_appeal" })}
+                            className="rounded-md bg-[#c9372c] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+                          >
+                            Reject appeal
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </section>
+
+            <section className="mt-5 rounded-lg border border-[#dfe1e6] bg-white p-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">History</h3>
+                <span className="text-xs text-[#5e6c84]">{(card.history || []).length} event{(card.history || []).length === 1 ? "" : "s"}</span>
+              </div>
+              {(card.history || []).length === 0 ? (
+                <p className="mt-2 text-xs text-[#5e6c84]">Created {card.createdAt ? formatWhen(card.createdAt) : "earlier"}.</p>
+              ) : (
+                <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto text-xs">
+                  {[...(card.history || [])].reverse().map((entry) => (
+                    <li key={entry.id} className="rounded bg-[#f7f8f9] px-2.5 py-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-[#172b4d]">
+                          {entry.action} · {entry.actorName}
+                        </span>
+                        <time className="text-[#5e6c84]">{formatWhen(entry.createdAt)}</time>
+                      </div>
+                      {entry.detail ? <p className="mt-0.5 text-[#44546f]">{entry.detail}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
             <section className="mt-5">
               <div className="mb-3 flex gap-1 rounded-lg bg-[#091e420f] p-1">
                 <button
@@ -647,15 +954,16 @@ export function CardDialog({
                   {people.map((member) => {
                     const canTag = member.role === "member";
                     const selected = card.assigneeIds.includes(member.userId || "");
+                    const givenLocked = Boolean(card.handoff) && !canReview && card.handoff?.fromUserId !== currentUserId;
                     const label = member.name || member.email;
                     return (
                       <button
                         key={member.id}
                         type="button"
-                        disabled={locked || !canTag}
-                        title={label}
+                        disabled={locked || !canTag || givenLocked}
+                        title={givenLocked ? "Only the person who gave this task can change members" : label}
                         onClick={() => {
-                          if (!canTag) return;
+                          if (!canTag || givenLocked) return;
                           const assigneeIds = selected
                             ? card.assigneeIds.filter((id) => id !== member.userId)
                             : [...card.assigneeIds, member.userId as string];
@@ -673,7 +981,15 @@ export function CardDialog({
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">{label}</span>
                           <span className="block truncate text-xs text-[#5e6c84]">
-                            {selected ? "Tagged on this card" : canTag ? "Click to tag" : member.role}
+                            {selected
+                              ? givenLocked
+                                ? "Given to this card"
+                                : "Tagged on this card"
+                              : givenLocked
+                                ? "Locked · given task"
+                                : canTag
+                                  ? "Click to tag"
+                                  : member.role}
                           </span>
                         </span>
                         {selected ? (
@@ -729,9 +1045,13 @@ export function CardDialog({
             <SideBlock title="Due date">
               <input
                 type="date"
-                value={card.dueDate || ""}
+                value={card.dueDate ? dueDay(card.dueDate) : ""}
                 disabled={!canEdit}
-                onChange={(event) => void save({ dueDate: event.target.value || null })}
+                onChange={(event) => {
+                  const day = event.target.value;
+                  const time = card.dueDate && hasDueTime(card.dueDate) ? card.dueDate.slice(10) : "";
+                  void save({ dueDate: day ? `${day}${time}` : null });
+                }}
                 className="w-full rounded-md border border-[#dfe1e6] bg-white px-2 py-1.5 text-sm disabled:opacity-50"
               />
               {card.dueDate ? (
@@ -862,7 +1182,7 @@ export function CardDialog({
     }
   }
 
-  async function review(decision: "approved" | "rejected") {
+  async function review(decision: "approved" | "rejected" | "finalized") {
     setReviewing(true);
     setError(null);
     try {
@@ -873,6 +1193,21 @@ export function CardDialog({
       setError(errorMessage(err));
     } finally {
       setReviewing(false);
+    }
+  }
+
+  async function runHandoff(body: Parameters<typeof api.handoffCard>[1]) {
+    setHandoffBusy(true);
+    setError(null);
+    try {
+      const saved = await api.handoffCard(card.id, body);
+      onCard(saved);
+      return true;
+    } catch (err) {
+      setError(errorMessage(err));
+      return false;
+    } finally {
+      setHandoffBusy(false);
     }
   }
 

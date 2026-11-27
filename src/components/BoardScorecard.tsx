@@ -3,7 +3,16 @@
 import { useMemo, useState } from "react";
 import type { Card, List, Membership, TimeLog } from "@shared/types";
 import { Avatar, cx } from "@/components/ui";
-import { formatDue, formatMinutes, isOverdue } from "@/lib/format";
+import { formatDue, formatMinutes, formatWhen, isOverdue } from "@/lib/format";
+import { cardCompletion } from "@/lib/completion";
+
+/** Employee rating out of 10: half average task completion %, half on-time %. */
+function rateEmployee(rows: { card: Card; list: List }[], counts: Counts): { score: number | null; completion: number; onTimePct: number } {
+  if (rows.length === 0) return { score: null, completion: 0, onTimePct: 0 };
+  const completion = Math.round(rows.reduce((sum, row) => sum + cardCompletion(row.card, row.list.title).percent, 0) / rows.length);
+  const onTimePct = Math.round((counts.onTime / rows.length) * 100);
+  return { score: Math.round(((completion + onTimePct) / 20) * 10) / 10, completion, onTimePct };
+}
 
 type Status = "on-time" | "late" | "overdue" | "open";
 
@@ -104,9 +113,16 @@ export function BoardScorecard({
     list.cards.filter((card) => card.approval !== "pending" && card.approval !== "rejected").map((card) => ({ card, list })),
   );
   const scoped = selectedId === "all" ? rows : rows.filter((row) => row.card.assigneeIds.includes(selectedId));
+  const dailySubmitted = scoped.filter(({ card }) => Boolean(card.handoff?.submittedAt && logDayKey(card.handoff.submittedAt) === day));
+  const dailySubmittedApproved = dailySubmitted.filter(({ card }) => card.handoff?.status === "approved").length;
+  const dailySubmittedPending = dailySubmitted.filter(({ card }) => card.handoff?.status === "submitted").length;
   const counts = tally(scoped);
   const personBars = people
-    .map((member) => ({ member, counts: tally(rows.filter((row) => row.card.assigneeIds.includes(member.userId || ""))) }))
+    .map((member) => {
+      const memberRows = rows.filter((row) => row.card.assigneeIds.includes(member.userId || ""));
+      const memberCounts = tally(memberRows);
+      return { member, counts: memberCounts, rating: rateEmployee(memberRows, memberCounts) };
+    })
     .sort((a, b) => b.counts.total - a.counts.total);
   const listBars = lists.map((list) => ({
     list,
@@ -261,6 +277,64 @@ export function BoardScorecard({
           ) : null}
         </section>
         <section className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold">Daily submitted ({day})</h3>
+              <p className="mt-1 text-xs text-[#5e6c84]">
+                Given tasks submitted for approval on the selected date. Click any task to open details and history.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-medium">
+              <span className="rounded-full bg-[#f1f2f4] px-2.5 py-1 text-[#172b4d]">Total: {dailySubmitted.length}</span>
+              <span className="rounded-full bg-[#dcfff1] px-2.5 py-1 text-[#216e4e]">Approved: {dailySubmittedApproved}</span>
+              <span className="rounded-full bg-[#fff7d6] px-2.5 py-1 text-[#7f5f01]">Waiting: {dailySubmittedPending}</span>
+            </div>
+          </div>
+          {dailySubmitted.length === 0 ? (
+            <p className="mt-3 text-sm text-[#5e6c84]">No tasks were submitted on {day}.</p>
+          ) : (
+            <ul className="mt-3 flex flex-col gap-2">
+              {dailySubmitted.map(({ card, list }) => {
+                const assignees = card.assigneeIds
+                  .map((id) => people.find((m) => m.userId === id)?.name || people.find((m) => m.userId === id)?.email || "Member")
+                  .join(", ");
+                const appeals = (card.history || []).filter((e) => e.action === "Timeline appeal requested").length;
+                return (
+                  <li key={card.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpen(card.id)}
+                      className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-[#f1f2f4] px-3 py-2.5 text-left hover:border-[#0c66e4]"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-[#172b4d]">{card.title}</p>
+                        <p className="mt-0.5 text-xs text-[#5e6c84]">
+                          {list.title} · From {card.handoff?.fromUserName || "Member"}
+                          {assignees ? ` → To ${assignees}` : ""}
+                          {card.handoff?.submittedAt ? ` · Submitted ${formatWhen(card.handoff.submittedAt)}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        {appeals > 0 ? (
+                          <span className="rounded-full bg-[#fff7d6] px-2 py-0.5 font-medium text-[#7f5f01]">{appeals} appeal(s)</span>
+                        ) : null}
+                        <span
+                          className={cx(
+                            "rounded-full px-2.5 py-0.5 font-medium",
+                            card.handoff?.status === "approved" ? "bg-[#dcfff1] text-[#216e4e]" : "bg-[#f3f0ff] text-[#5e4db2]",
+                          )}
+                        >
+                          {card.handoff?.status === "approved" ? "Approved" : "Waiting approval"}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+        <section className="rounded-2xl bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold">By person</h3>
           <div className="mt-3 flex flex-wrap gap-2">
             <PersonChip label="Everyone" count={rows.length} active={selectedId === "all"} onClick={() => onSelect("all")} />
@@ -288,8 +362,13 @@ export function BoardScorecard({
                     <span className="truncate text-sm">{item.member.name || item.member.email}</span>
                   </span>
                   <StackedBar counts={item.counts} max={maxPerson} />
-                  <span className="w-24 text-right text-xs text-[#5e6c84]">
-                    {item.counts.onTime} on time · {item.counts.total}
+                  <span className="w-44 text-right text-xs text-[#5e6c84]" title="Rating = (average completion % + on-time %) ÷ 20, out of 10">
+                    <span className="block font-semibold text-[#0c66e4]">
+                      {item.rating.score === null ? "No tasks" : `${item.rating.score}/10`}
+                    </span>
+                    <span className="block">
+                      Completion {item.rating.completion}% · On time {item.rating.onTimePct}% · {item.counts.total} tasks
+                    </span>
                   </span>
                 </button>
               </li>
@@ -337,6 +416,16 @@ export function BoardScorecard({
                               {card.checklist.length > 0 ? (
                                 <span>
                                   Checklist {done}/{card.checklist.length}
+                                </span>
+                              ) : null}
+                              {card.handoff ? (
+                                <span className="rounded bg-[#f3f0ff] px-1.5 py-0.5 font-medium text-[#5e4db2]">
+                                  Given · {card.handoff.status.replace("_", " ")}
+                                </span>
+                              ) : null}
+                              {(card.history || []).filter((e) => e.action === "Timeline appeal requested").length > 0 ? (
+                                <span className="rounded bg-[#fff7d6] px-1.5 py-0.5 font-medium text-[#7f5f01]">
+                                  {(card.history || []).filter((e) => e.action === "Timeline appeal requested").length} appeal(s)
                                 </span>
                               ) : null}
                             </span>

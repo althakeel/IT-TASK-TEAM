@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import ImageKit from "imagekit-javascript";
 import { updateProfile } from "firebase/auth";
 import { api } from "@/lib/api";
+import { DEFAULT_ALERT_PREFS, loadAlertPrefs, saveAlertPrefs } from "@/lib/alert-prefs";
 import { useAuth } from "@/lib/auth-context";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { errorMessage } from "@/lib/format";
@@ -19,6 +20,8 @@ export function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [alertPrefs, setAlertPrefs] = useState(() => loadAlertPrefs());
+  const [alertSaved, setAlertSaved] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace("/login?next=/profile");
@@ -130,6 +133,105 @@ export function ProfileScreen() {
               {busy ? "Saving..." : "Save name"}
             </Button>
           </form>
+        </section>
+
+        <section className="mt-6 rounded-xl border border-[#dfe1e6] bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">Card timeline alert colors</h2>
+          <p className="mt-1 text-sm text-[#5e6c84]">
+            Customize when cards change color as a timeline gets close. More than the warning time stays normal white.
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-[#dfe1e6] p-3">
+              <p className="text-xs font-semibold uppercase text-[#44546f]">Warning alert</p>
+              <label className="mt-2 block text-xs font-medium text-[#5e6c84]">
+                Minutes before deadline (default 120 = 2h)
+                <TextInput
+                  type="number"
+                  min={0}
+                  max={10080}
+                  className="mt-1"
+                  value={alertPrefs.warningMinutes}
+                  onChange={(event) => {
+                    const next = { ...alertPrefs, warningMinutes: Math.max(0, Number(event.target.value) || 0) };
+                    setAlertPrefs(next);
+                    setAlertSaved(null);
+                  }}
+                />
+              </label>
+              <label className="mt-3 flex items-center justify-between text-xs font-medium text-[#5e6c84]">
+                <span>Card color</span>
+                <input
+                  type="color"
+                  value={alertPrefs.warningColor}
+                  onChange={(event) => {
+                    setAlertPrefs({ ...alertPrefs, warningColor: event.target.value });
+                    setAlertSaved(null);
+                  }}
+                  className="h-8 w-14 cursor-pointer rounded border border-[#dfe1e6]"
+                />
+              </label>
+              <div className="mt-3 rounded-md px-2.5 py-1.5 text-xs font-medium text-white" style={{ backgroundColor: alertPrefs.warningColor }}>
+                Preview · Under {alertPrefs.warningMinutes}m left
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#dfe1e6] p-3">
+              <p className="text-xs font-semibold uppercase text-[#44546f]">Urgent alert</p>
+              <label className="mt-2 block text-xs font-medium text-[#5e6c84]">
+                Minutes before deadline (default 10m)
+                <TextInput
+                  type="number"
+                  min={0}
+                  max={10080}
+                  className="mt-1"
+                  value={alertPrefs.urgentMinutes}
+                  onChange={(event) => {
+                    const next = { ...alertPrefs, urgentMinutes: Math.max(0, Number(event.target.value) || 0) };
+                    setAlertPrefs(next);
+                    setAlertSaved(null);
+                  }}
+                />
+              </label>
+              <label className="mt-3 flex items-center justify-between text-xs font-medium text-[#5e6c84]">
+                <span>Card color</span>
+                <input
+                  type="color"
+                  value={alertPrefs.urgentColor}
+                  onChange={(event) => {
+                    setAlertPrefs({ ...alertPrefs, urgentColor: event.target.value });
+                    setAlertSaved(null);
+                  }}
+                  className="h-8 w-14 cursor-pointer rounded border border-[#dfe1e6]"
+                />
+              </label>
+              <div className="mt-3 rounded-md px-2.5 py-1.5 text-xs font-medium text-white" style={{ backgroundColor: alertPrefs.urgentColor }}>
+                Preview · Under {alertPrefs.urgentMinutes}m left
+              </div>
+            </div>
+          </div>
+          {alertSaved ? <p className="mt-3 text-sm text-[#216e4e]">{alertSaved}</p> : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                saveAlertPrefs(alertPrefs);
+                setAlertSaved("Card timeline colors saved.");
+              }}
+            >
+              Save alert settings
+            </Button>
+            <Button
+              type="button"
+              variant="quiet"
+              onClick={() => {
+                setAlertPrefs(DEFAULT_ALERT_PREFS);
+                saveAlertPrefs(DEFAULT_ALERT_PREFS);
+                setAlertSaved("Reset to defaults (2h orange, 10m red).");
+              }}
+            >
+              Reset defaults
+            </Button>
+          </div>
         </section>
       </main>
     </div>

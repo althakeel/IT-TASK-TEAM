@@ -103,7 +103,29 @@ export const api = {
     request<{ ok: true }>(`/api/lists/${listId}`, "DELETE", { clientMutationId }),
   createCard: (listId: string, title: string, clientMutationId: string) =>
     request<Card>(`/api/lists/${listId}/cards`, "POST", { title, clientMutationId }),
-  reviewCard: (cardId: string, decision: "approved" | "rejected") =>
+  giveTask: (
+    listId: string,
+    body: {
+      title: string;
+      description?: string;
+      reference?: string;
+      referenceUrl?: string;
+      assigneeIds: string[];
+      checklist?: string[];
+      dueDate?: string | null;
+    },
+  ) => request<Card>(`/api/lists/${listId}/give-task`, "POST", body),
+  handoffCard: (
+    cardId: string,
+    body: {
+      action: "give" | "accept" | "submit" | "approve" | "request_changes" | "appeal" | "approve_appeal" | "reject_appeal" | "cancel";
+      assigneeIds?: string[];
+      dueDate?: string;
+      requestedDueDate?: string;
+      reason?: string;
+    },
+  ) => request<Card>(`/api/cards/${cardId}/handoff`, "POST", body),
+  reviewCard: (cardId: string, decision: "approved" | "rejected" | "finalized") =>
     request<Card>(`/api/cards/${cardId}/approval`, "POST", { decision }),
   addTime: (cardId: string, minutes: number, note = "") =>
     request<Card>(`/api/cards/${cardId}/time`, "POST", { minutes, note }),

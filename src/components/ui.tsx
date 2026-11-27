@@ -138,7 +138,17 @@ export function FullScreenSpinner({ light = false }: { light?: boolean }) {
   );
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  title,
+  onClose,
+  children,
+  wide = false,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  wide?: boolean;
+}) {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -150,7 +160,10 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 p-6" onMouseDown={onClose}>
       <div
-        className="mt-10 max-h-[min(640px,calc(100vh-5rem))] w-full max-w-md overflow-y-auto rounded-xl bg-white p-5 shadow-xl"
+        className={cx(
+          "mt-10 max-h-[min(720px,calc(100vh-5rem))] w-full overflow-y-auto rounded-xl bg-white p-5 shadow-xl",
+          wide ? "max-w-xl" : "max-w-md",
+        )}
         role="dialog"
         aria-modal="true"
         aria-label={title}

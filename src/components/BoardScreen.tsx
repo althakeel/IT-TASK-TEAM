@@ -44,11 +44,23 @@ export function BoardScreen() {
   const [personId, setPersonId] = useState("all");
   const [labelColor, setLabelColor] = useState("all");
   const [dueFilter, setDueFilter] = useState<"all" | "overdue" | "week" | "none">("all");
-  const [view, setView] = useState<"approval" | "approved" | "normal">("normal");
+  const [view, setView] = useState<"approval" | "approved" | "finalized" | "normal">("normal");
   const [layout, setLayout] = useState<BoardLayout>("board");
   const [refreshing, setRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [giveOpen, setGiveOpen] = useState(false);
+  const [giveTitle, setGiveTitle] = useState("");
+  const [giveDesc, setGiveDesc] = useState("");
+  const [giveRef, setGiveRef] = useState("");
+  const [giveRefUrl, setGiveRefUrl] = useState("");
+  const [giveListId, setGiveListId] = useState("");
+  const [giveAssignees, setGiveAssignees] = useState<string[]>([]);
+  const [givePoints, setGivePoints] = useState<string[]>([]);
+  const [givePointInput, setGivePointInput] = useState("");
+  const [giveTicks, setGiveTicks] = useState<string[]>([]);
+  const [giveTickInput, setGiveTickInput] = useState("");
+  const [giveBusy, setGiveBusy] = useState(false);
 
   useEffect(() => {
     if (!auth.loading && !auth.signedIn) router.replace(`/login?next=/b/${boardId}`);
@@ -88,7 +100,7 @@ export function BoardScreen() {
   const { board, role, members } = live.detail;
   const openCard = live.lists.flatMap((list) => list.cards).find((card) => card.id === live.openCardId);
   const isAdmin = auth.user.isAdmin;
-  const canReview = isAdmin || role === "owner" || role === "admin";
+  const canReview = isAdmin;
   const locked = Boolean(board.closed);
   const taskCount = live.lists.reduce((sum, list) => sum + list.cards.length, 0);
 
@@ -96,12 +108,16 @@ export function BoardScreen() {
   const needle = query.trim().toLowerCase();
   const searchFiltering = Boolean(needle) || personId !== "all" || labelColor !== "all" || dueFilter !== "all";
   const allCards = live.lists.flatMap((list) => list.cards);
-  const approvalCount = allCards.filter((card) => card.approval === "pending").length;
+  const approvalCount = allCards.filter((card) => card.approval === "pending" || card.approval === "rejected").length;
   const approvedCount = allCards.filter((card) => card.approval === "approved").length;
+  const finalizedCount = allCards.filter((card) => card.approval === "finalized").length;
+  // Given tasks are finalised only by the person who gave them, so bulk finalise skips them.
+  const finaliseIds = (ids: string[]) => ids.filter((id) => allCards.some((card) => card.id === id && !card.handoff));
   function matchesView(card: Card) {
     if (!canReview) return true;
     if (view === "approval") return card.approval === "pending" || card.approval === "rejected";
     if (view === "approved") return card.approval === "approved";
+    if (view === "finalized") return card.approval === "finalized";
     return card.approval !== "pending" && card.approval !== "rejected";
   }
   const totalCards = allCards.filter(matchesView).length;
@@ -182,6 +198,27 @@ export function BoardScreen() {
                 <Avatar key={member.id} name={member.name || member.email} photo={member.photo} size={28} />
               ))}
           </div>
+          {!locked && live.lists.length > 0 ? (
+            <button
+              type="button"
+              className="rounded-md bg-[#0c66e4] px-3 py-1 text-sm font-medium text-white hover:bg-[#0055cc]"
+              onClick={() => {
+                setGiveTitle("");
+                setGiveDesc("");
+                setGiveRef("");
+                setGiveRefUrl("");
+                setGiveListId(live.lists[0]?.id || "");
+                setGiveAssignees([]);
+                setGivePoints([]);
+                setGivePointInput("");
+                setGiveTicks([]);
+                setGiveTickInput("");
+                setGiveOpen(true);
+              }}
+            >
+              Give task
+            </button>
+          ) : null}
           {isAdmin ? (
             <button type="button" className="rounded-md bg-white px-3 py-1 text-sm font-medium text-[#172b4d]" onClick={() => setScoreOpen(true)}>
               Scorecard
@@ -212,8 +249,9 @@ export function BoardScreen() {
           <div className="flex rounded-md bg-black/20 p-0.5">
             {(
               [
-                ["approval", "Approval", approvalCount],
+                ["approval", "Request for approval", approvalCount],
                 ["approved", "Approved", approvedCount],
+                ["finalized", "Finalised", finalizedCount],
                 ["normal", "Normal process", null],
               ] as const
             ).map(([id, label, count]) => (
@@ -303,14 +341,18 @@ export function BoardScreen() {
       ) : null}
       {view === "approval" ? (
         <p className="px-4 pt-3 text-sm text-white/90">
-          {canReview
-            ? "Select one or more tasks, then approve or reject them together. You can still open a task for Chat."
-            : "Tasks you add stay here until the admin approves them. Other members cannot see them yet."}
+          Only the admin can move these to Approved. Select tasks to approve or reject, or open one for Chat.
         </p>
       ) : view === "approved" ? (
-        <p className="px-4 pt-3 text-sm text-white/90">These tasks are approved. They also show on Normal process for the people tagged on them.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">
+          Approved by the admin. Select tasks and mark them Finalised when you have checked the work, or open a card. Given tasks are finalised by the person who gave them.
+        </p>
+      ) : view === "finalized" ? (
+        <p className="px-4 pt-3 text-sm text-white/90">Admin checked these and marked them finalised. They also show on Normal process.</p>
       ) : !canReview ? (
-        <p className="px-4 pt-3 text-sm text-white/90">You only see tasks you are tagged on. Click a card to edit it. New cards show Request for approval until the owner or admin approves them.</p>
+        <p className="px-4 pt-3 text-sm text-white/90">
+          You only see tasks you are tagged on. Click a card to edit it. New cards show Request for approval until the admin approves them.
+        </p>
       ) : null}
       {!isAdmin && taskCount === 0 ? (
         <div className="mx-3 mt-3 rounded-xl bg-white/95 px-4 py-6 text-sm text-[#44546f]">
@@ -336,7 +378,9 @@ export function BoardScreen() {
               ? "No cards match this search."
               : view === "approval"
                 ? "Nothing is waiting for approval."
-                : "No tasks have been approved yet."}
+                : view === "finalized"
+                  ? "No tasks have been finalised yet."
+                  : "No tasks have been approved yet."}
           </div>
         ) : (
           <Board
@@ -355,8 +399,8 @@ export function BoardScreen() {
             }}
             canDelete={isAdmin}
             locked={locked}
-            arrangeLocked={searchFiltering || view !== "normal"}
-            selectable={canReview && view === "approval" && layout === "board"}
+            arrangeLocked={searchFiltering}
+            selectable={canReview && (view === "approval" || view === "approved") && layout === "board"}
             selectedIds={new Set(selectedIds)}
             onToggleSelect={(cardId) => {
               setSelectedIds((current) => (current.includes(cardId) ? current.filter((id) => id !== cardId) : [...current, cardId]));
@@ -383,7 +427,7 @@ export function BoardScreen() {
                 )
                   .then(() => {
                     setSelectedIds([]);
-                    setView("normal");
+                    setView("approved");
                     setToast("Selected tasks approved.");
                   })
                   .catch((error) => setToast(errorMessage(error)))
@@ -422,6 +466,289 @@ export function BoardScreen() {
             </button>
           </div>
         </div>
+      ) : null}
+      {canReview && view === "approved" && selectedIds.length > 0 ? (
+        <div className="fixed inset-x-0 bottom-14 z-20 flex justify-center px-3 pb-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#172b4d] px-3 py-2 text-sm text-white shadow-xl">
+            <span>{selectedIds.length} selected</span>
+            <button
+              type="button"
+              disabled={bulkBusy || locked}
+              onClick={() => {
+                const ids = finaliseIds(selectedIds);
+                if (ids.length === 0) {
+                  setToast("Given tasks can only be finalised by the person who gave them.");
+                  return;
+                }
+                setBulkBusy(true);
+                void Promise.all(
+                  ids.map((id) =>
+                    api.reviewCard(id, "finalized").then((card) => {
+                      live.setLists((current) => upsertCard(current, card));
+                      return card;
+                    }),
+                  ),
+                )
+                  .then(() => {
+                    setSelectedIds([]);
+                    setView("finalized");
+                    setToast("Selected tasks finalised.");
+                  })
+                  .catch((error) => setToast(errorMessage(error)))
+                  .finally(() => setBulkBusy(false));
+              }}
+              className="rounded-md bg-[#0c66e4] px-3 py-1.5 font-medium disabled:opacity-40"
+            >
+              Finalise selected
+            </button>
+            <button type="button" disabled={bulkBusy} onClick={() => setSelectedIds([])} className="rounded-md px-2 py-1.5 hover:bg-white/10">
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {giveOpen ? (
+        <Modal title="Give a task to a member" wide onClose={() => setGiveOpen(false)}>
+          <p className="text-sm text-[#5e6c84]">
+            Choose member(s) now or add them later. Chosen members receive an email and can approve the task, set their timeline, upload work, or appeal for more time.
+          </p>
+          <form
+            className="mt-4 flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const targetList = giveListId || live.lists[0]?.id;
+              if (!targetList || !giveTitle.trim()) return;
+              const pendingPoint = givePointInput.trim();
+              const allPoints = pendingPoint ? [...givePoints, pendingPoint] : givePoints;
+              const pointsText = allPoints.map((point) => `• ${point}`).join("\n");
+              const combinedDesc = [giveDesc.trim(), pointsText].filter(Boolean).join("\n\n");
+              const pendingTick = giveTickInput.trim();
+              const checklist = pendingTick ? [...giveTicks, pendingTick] : giveTicks;
+              setGiveBusy(true);
+              api
+                .giveTask(targetList, {
+                  title: giveTitle.trim(),
+                  description: combinedDesc,
+                  reference: giveRef.trim(),
+                  referenceUrl: giveRefUrl.trim(),
+                  assigneeIds: giveAssignees,
+                  checklist,
+                })
+                .then((card) => {
+                  live.setLists((current) => upsertCard(current, card));
+                  setGiveOpen(false);
+                  live.setOpenCardId(card.id);
+                  setToast(giveAssignees.length > 0 ? "Task given and email sent." : "Task created. Add members when ready.");
+                })
+                .catch((error) => setToast(errorMessage(error)))
+                .finally(() => setGiveBusy(false));
+            }}
+          >
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">Task title</label>
+              <TextInput value={giveTitle} onChange={(event) => setGiveTitle(event.target.value)} placeholder="What needs to be done?" required />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">List</label>
+              <select
+                value={giveListId || live.lists[0]?.id || ""}
+                onChange={(event) => setGiveListId(event.target.value)}
+                className="w-full rounded-md border border-[#dfe1e6] bg-white px-2.5 py-2 text-sm text-[#172b4d]"
+              >
+                {live.lists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {list.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">Choose member(s) (optional, can add later)</label>
+              <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto rounded-md border border-[#dfe1e6] bg-[#f7f8f9] p-2">
+                {tagPeople
+                  .filter((member) => member.userId !== auth.user?.id)
+                  .map((member) => {
+                  const id = member.userId as string;
+                  const chosen = giveAssignees.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() =>
+                        setGiveAssignees((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+                      }
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                        chosen ? "bg-[#0c66e4] text-white" : "bg-white text-[#172b4d] ring-1 ring-[#dfe1e6]"
+                      }`}
+                    >
+                      {member.name || member.email}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <label className="block text-xs font-semibold text-[#44546f]">Details / description</label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGiveDesc((current) => (current.trim() ? `${current.replace(/\s*$/, "")}\n• ` : "• "))
+                    }
+                    className="whitespace-nowrap rounded bg-[#091e420f] px-2.5 py-1 text-xs font-medium text-[#172b4d] hover:bg-[#091e421a]"
+                  >
+                    + Bullet point
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGiveDesc((current) => {
+                        const lines = current.split("\n").filter((line) => line.trim());
+                        const nextNum = lines.length + 1;
+                        return current.trim() ? `${current.replace(/\s*$/, "")}\n${nextNum}. ` : "1. ";
+                      })
+                    }
+                    className="whitespace-nowrap rounded bg-[#091e420f] px-2.5 py-1 text-xs font-medium text-[#172b4d] hover:bg-[#091e421a]"
+                  >
+                    + Numbered point
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={giveDesc}
+                onChange={(event) => setGiveDesc(event.target.value)}
+                rows={3}
+                placeholder="Explain the task details (or add bullet / numbered points)..."
+                className="w-full rounded-md border border-[#dfe1e6] px-2.5 py-2 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">Point-wise details</label>
+              {givePoints.length > 0 ? (
+                <ul className="mb-2 space-y-1">
+                  {givePoints.map((point, idx) => (
+                    <li key={`${idx}-${point}`} className="flex items-center gap-2 rounded bg-[#f7f8f9] px-2.5 py-1.5 text-sm text-[#172b4d]">
+                      <span className="font-semibold text-[#0c66e4]">{idx + 1}.</span>
+                      <span className="flex-1">{point}</span>
+                      <button
+                        type="button"
+                        onClick={() => setGivePoints((current) => current.filter((_, i) => i !== idx))}
+                        className="text-xs text-[#ae2e24] hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <TextInput
+                  className="min-w-0 flex-1"
+                  value={givePointInput}
+                  onChange={(event) => setGivePointInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      const next = givePointInput.trim();
+                      if (!next) return;
+                      setGivePoints((current) => [...current, next]);
+                      setGivePointInput("");
+                    }
+                  }}
+                  placeholder="Add a point and press Enter..."
+                />
+                <Button
+                  type="button"
+                  variant="quiet"
+                  className="shrink-0"
+                  onClick={() => {
+                    const next = givePointInput.trim();
+                    if (!next) return;
+                    setGivePoints((current) => [...current, next]);
+                    setGivePointInput("");
+                  }}
+                >
+                  Add point
+                </Button>
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">
+                Tick-wise checklist (member can tick off each item)
+              </label>
+              {giveTicks.length > 0 ? (
+                <ul className="mb-2 space-y-1">
+                  {giveTicks.map((item, idx) => (
+                    <li key={`${idx}-${item}`} className="flex items-center gap-2 rounded bg-[#f7f8f9] px-2.5 py-1.5 text-sm text-[#172b4d]">
+                      <span className="text-[#5e6c84]">☐</span>
+                      <span className="flex-1">{item}</span>
+                      <button
+                        type="button"
+                        onClick={() => setGiveTicks((current) => current.filter((_, i) => i !== idx))}
+                        className="text-xs text-[#ae2e24] hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <TextInput
+                  className="min-w-0 flex-1"
+                  value={giveTickInput}
+                  onChange={(event) => setGiveTickInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      const next = giveTickInput.trim();
+                      if (!next) return;
+                      setGiveTicks((current) => [...current, next]);
+                      setGiveTickInput("");
+                    }
+                  }}
+                  placeholder="Add a tick item and press Enter..."
+                />
+                <Button
+                  type="button"
+                  variant="quiet"
+                  className="shrink-0"
+                  onClick={() => {
+                    const next = giveTickInput.trim();
+                    if (!next) return;
+                    setGiveTicks((current) => [...current, next]);
+                    setGiveTickInput("");
+                  }}
+                >
+                  Add tick
+                </Button>
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">Reference notes</label>
+              <textarea
+                value={giveRef}
+                onChange={(event) => setGiveRef(event.target.value)}
+                rows={2}
+                placeholder="Any references, examples, or instructions..."
+                className="w-full rounded-md border border-[#dfe1e6] px-2.5 py-2 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#44546f]">Reference link (optional)</label>
+              <TextInput value={giveRefUrl} onChange={(event) => setGiveRefUrl(event.target.value)} placeholder="https://..." />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="ghost" onClick={() => setGiveOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={giveBusy || !giveTitle.trim()}>
+                {giveBusy ? "Sending…" : "Give task"}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
       {shareOpen ? (
         <Modal title="Share this board" onClose={() => setShareOpen(false)}>
@@ -694,7 +1021,8 @@ export function BoardScreen() {
           forgetMutation={live.forgetMutation}
           onCard={(card: Card) => live.setLists((current) => upsertCard(current, card))}
           onReviewed={(card) => {
-            if (card.approval === "approved") setView("normal");
+            if (card.approval === "approved") setView("approved");
+            if (card.approval === "finalized") setView("finalized");
           }}
           onComments={live.setComments}
           canDelete={isAdmin}

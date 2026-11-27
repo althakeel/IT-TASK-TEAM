@@ -26,8 +26,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Card, List, Membership } from "@shared/types";
 import { positionBetween } from "@shared/position";
 import { api } from "@/lib/api";
+import { loadAlertPrefs, onAlertPrefsChange } from "@/lib/alert-prefs";
 import { upsertCard } from "@/lib/board-state";
-import { errorMessage, formatDue, formatMinutes, formatWhen, isOverdue } from "@/lib/format";
+import { dueTimestamp, errorMessage, formatCountdown, formatDue, formatMinutes, formatWhen, isOverdue } from "@/lib/format";
+import { cardCompletion } from "@/lib/completion";
 import { Avatar, Button, cx, Modal, TextInput } from "@/components/ui";
 
 type BoardProps = {
@@ -281,9 +283,11 @@ export function Board({
       attachments: [],
       links: [],
       timeLogs: [],
+      history: [],
       createdBy: "",
       createdAt: new Date().toISOString(),
       approval: null,
+      handoff: null,
       location: "",
     };
     setLists((prev) => prev.map((item) => (item.id === listId ? { ...item, cards: [...item.cards, optimistic] } : item)));
@@ -648,13 +652,16 @@ function SortableCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { type: "card", listId: card.listId },
-    disabled: locked || selectable,
+    disabled: locked,
   });
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={cx(isDragging && "opacity-40")}>
       <div className={cx("relative rounded-lg", selected && "ring-2 ring-[#0c66e4]")}>
         {selectable ? (
-          <label className="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded bg-white shadow-sm">
+          <label
+            className="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded bg-white shadow-sm"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
             <input
               type="checkbox"
               checked={selected}
@@ -664,7 +671,7 @@ function SortableCard({
             />
           </label>
         ) : null}
-        <button type="button" className="block w-full text-left" onClick={onOpen} {...attributes} {...(selectable ? {} : listeners)}>
+        <button type="button" className="block w-full text-left" onClick={onOpen} {...attributes} {...(locked ? {} : listeners)}>
           <CardFace card={card} people={people} />
         </button>
       </div>
@@ -673,14 +680,55 @@ function SortableCard({
 }
 
 function CardFace({ card, people, overlay = false }: { card: Card; people: Map<string, Membership>; overlay?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [prefs, setPrefs] = useState(() => loadAlertPrefs());
   const cover = card.attachments[0];
   const done = card.checklist.filter((item) => item.done).length;
   const timeTotal = (card.timeLogs || []).reduce((sum, entry) => sum + (entry.minutes || 0), 0);
+  const completed = card.handoff?.status === "approved" || card.approval === "finalized";
+  const dueMs = card.dueDate ? dueTimestamp(card.dueDate) : null;
+
+  useEffect(() => onAlertPrefsChange(() => setPrefs(loadAlertPrefs())), []);
+
+  useEffect(() => {
+    if (!dueMs || completed) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [dueMs, completed]);
+
+  const startIso = card.handoff?.acceptedAt || card.createdAt;
+  const startMs = startIso ? new Date(startIso).getTime() : now;
+  const remainingMs = dueMs !== null ? dueMs - now : null;
+  const totalMs = dueMs !== null ? Math.max(1, dueMs - startMs) : 1;
+  const elapsedPct = dueMs !== null ? Math.min(100, Math.max(0, Math.round(((now - startMs) / totalMs) * 100))) : 0;
+  const urgent = !completed && remainingMs !== null && remainingMs < prefs.urgentMinutes * 60 * 1000;
+  const warning = !completed && !urgent && remainingMs !== null && remainingMs < prefs.warningMinutes * 60 * 1000;
+  const alerted = urgent || warning;
+  const completion = cardCompletion(card);
+  const assigneeNames = card.assigneeIds.map((id) => people.get(id)?.name || people.get(id)?.email || "Member").join(", ");
+  const handoffStatus =
+    card.handoff?.status === "pending_accept"
+      ? "Waiting accept"
+      : card.handoff?.status === "accepted"
+        ? "In progress"
+        : card.handoff?.status === "submitted"
+          ? "Needs approval"
+          : card.handoff?.status === "approved"
+            ? "Approved"
+            : "";
+
   return (
-    <article className={cx("overflow-hidden rounded-lg bg-white shadow-sm", overlay && "w-[256px] rotate-1 shadow-xl")}>
+    <article
+      style={urgent ? { backgroundColor: prefs.urgentColor } : warning ? { backgroundColor: prefs.warningColor } : undefined}
+      className={cx(
+        "rounded-lg shadow-sm transition-colors",
+        alerted ? "text-white" : "bg-white",
+        overlay && "w-[256px] rotate-1 shadow-xl",
+      )}
+    >
       {cover ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={cover.thumbnailUrl || cover.url} alt="" className="h-32 w-full object-cover" />
+        <img src={cover.thumbnailUrl || cover.url} alt="" className="h-32 w-full rounded-t-lg object-cover" />
       ) : null}
       <div className="px-2.5 py-2">
         {card.labels.length > 0 ? (
@@ -690,30 +738,113 @@ function CardFace({ card, people, overlay = false }: { card: Card; people: Map<s
             ))}
           </div>
         ) : null}
-        <h3 className="text-sm leading-5 text-[#172b4d]">{card.title}</h3>
-        {card.approval === "pending" ? <p className="mt-1 text-xs font-medium text-[#7f5f01]">Request for approval</p> : null}
-        {card.approval === "rejected" ? <p className="mt-1 text-xs font-medium text-[#ae2e24]">Rejected</p> : null}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-[#5e6c84]">
+        <h3 className={cx("text-sm leading-5", alerted ? "font-medium text-white" : "text-[#172b4d]")}>{card.title}</h3>
+        {card.approval === "pending" ? (
+          <p className={cx("mt-1 text-xs font-medium", alerted ? "text-white/90" : "text-[#7f5f01]")}>Request for approval</p>
+        ) : null}
+        {card.approval === "rejected" ? (
+          <p className={cx("mt-1 text-xs font-medium", alerted ? "text-white/90" : "text-[#ae2e24]")}>Rejected</p>
+        ) : null}
+        {card.approval === "finalized" ? (
+          <p className={cx("mt-1 text-xs font-medium", alerted ? "text-white/90" : "text-[#0c66e4]")}>Finalised</p>
+        ) : null}
+        {card.handoff ? (
+          <p className={cx("mt-1 text-xs font-medium", alerted ? "text-white/95" : "text-[#5e4db2]")}>
+            {`Given by ${card.handoff.fromUserName}${
+              card.assigneeIds.length > 0
+                ? ` → To ${card.assigneeIds
+                    .map((id) => people.get(id)?.name || people.get(id)?.email || "Member")
+                    .join(", ")}`
+                : " → To (not assigned)"
+            }`}
+            {card.handoff.status === "pending_accept"
+              ? " · Waiting accept"
+              : card.handoff.status === "accepted"
+                ? " · In progress"
+                : card.handoff.status === "submitted"
+                  ? " · Needs approval"
+                  : " · Approved"}
+            {card.handoff.appeal?.status === "pending" ? " · Timeline appeal" : ""}
+          </p>
+        ) : null}
+        <div className="mt-2 flex items-center gap-2 text-[11px] font-medium">
+          <div className={cx("h-1.5 flex-1 overflow-hidden rounded-full", alerted ? "bg-white/30" : "bg-[#e9ebee]")}>
+            <div
+              className={cx(
+                "h-full rounded-full transition-all",
+                alerted ? "bg-white" : completion.percent === 100 ? "bg-[#1f845a]" : "bg-[#0c66e4]",
+              )}
+              style={{ width: `${completion.percent}%` }}
+            />
+          </div>
+          <span className={cx("whitespace-nowrap", alerted ? "text-white" : "text-[#44546f]")}>
+            {completion.percent}/100% · {completion.label}
+          </span>
+        </div>
+        {dueMs !== null && remainingMs !== null && !completed ? (
+          <div className="mt-2">
+            <div className={cx("mb-1 flex items-center justify-between text-[11px] font-medium", alerted ? "text-white" : "text-[#44546f]")}>
+              <span>{formatCountdown(remainingMs)}</span>
+              <span>{elapsedPct}%</span>
+            </div>
+            <div className={cx("h-1.5 w-full overflow-hidden rounded-full", alerted ? "bg-white/30" : "bg-[#e9ebee]")}>
+              <div
+                className={cx("h-full rounded-full transition-all", alerted ? "bg-white" : elapsedPct >= 80 ? "bg-[#e2b203]" : "bg-[#0c66e4]")}
+                style={{ width: `${elapsedPct}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+        <div className={cx("mt-1.5 flex flex-wrap items-center gap-1.5 text-xs", alerted ? "text-white/90" : "text-[#5e6c84]")}>
           {card.createdAt ? <time dateTime={card.createdAt}>{formatWhen(card.createdAt)}</time> : null}
           {card.dueDate ? (
-            <span className={cx("rounded px-1.5 py-0.5", isOverdue(card.dueDate) ? "bg-[#ffeceb] text-[#ae2e24]" : "bg-[#f1f2f4]")}>
+            <span
+              className={cx(
+                "rounded px-1.5 py-0.5",
+                alerted ? "bg-white/20 text-white" : isOverdue(card.dueDate) ? "bg-[#ffeceb] text-[#ae2e24]" : "bg-[#f1f2f4]",
+              )}
+            >
               {formatDue(card.dueDate)}
             </span>
           ) : null}
           {card.description || card.suggestions ? <span aria-label="Has notes">☰</span> : null}
           {card.checklist.length > 0 ? (
-            <span className={cx("rounded px-1.5 py-0.5", done === card.checklist.length && "bg-[#dcfff1] text-[#216e4e]")}>
+            <span
+              className={cx(
+                "rounded px-1.5 py-0.5",
+                alerted ? "bg-white/20 text-white" : done === card.checklist.length && "bg-[#dcfff1] text-[#216e4e]",
+              )}
+            >
               {done}/{card.checklist.length}
             </span>
           ) : null}
           {(card.links || []).length > 0 ? <span>{card.links.length} link{card.links.length === 1 ? "" : "s"}</span> : null}
           {timeTotal > 0 ? <span>{formatMinutes(timeTotal)}</span> : null}
           {card.attachments.length > 0 ? <span>{card.attachments.length} file{card.attachments.length === 1 ? "" : "s"}</span> : null}
-          <span className="ml-auto flex -space-x-1">
-            {card.assigneeIds.map((id) => {
-              const person = people.get(id);
-              return <Avatar key={id} name={person?.name || person?.email || "?"} photo={person?.photo} size={22} />;
-            })}
+          <span className="group relative ml-auto">
+            <span className="flex -space-x-1">
+              {card.assigneeIds.map((id) => {
+                const person = people.get(id);
+                return <Avatar key={id} name={person?.name || person?.email || "?"} photo={person?.photo} size={22} />;
+              })}
+            </span>
+            <span
+              role="tooltip"
+              className="pointer-events-none invisible absolute bottom-full right-0 z-30 mb-2 w-60 rounded-lg bg-[#172b4d] px-3 py-2 text-left text-xs font-normal leading-5 text-white opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100"
+            >
+              {card.handoff ? (
+                <>
+                  <span className="block font-semibold">Given by {card.handoff.fromUserName}</span>
+                  <span className="block">To {assigneeNames || "not assigned"}</span>
+                  {handoffStatus ? <span className="mt-1 block text-white/70">{handoffStatus}</span> : null}
+                </>
+              ) : (
+                <>
+                  <span className="block font-semibold">Assigned to</span>
+                  <span className="block">{assigneeNames || "No one yet"}</span>
+                </>
+              )}
+            </span>
           </span>
         </div>
       </div>
